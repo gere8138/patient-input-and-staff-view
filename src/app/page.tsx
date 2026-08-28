@@ -10,7 +10,7 @@ export default function LandingPage() {
   return (
     <main className="flex min-h-dvh flex-col justify-center bg-paper px-6 py-16 text-ink">
       <div className="mx-auto w-full max-w-lg">
-        <p className="font-mono text-xs tracking-widest text-muted uppercase">Agnos clinic</p>
+        <p className="font-mono text-xs tracking-widest text-muted uppercase">Agnos</p>
         <h1 className="mt-3 text-3xl font-semibold text-balance sm:text-4xl">
           Patient intake, watched live from the front desk.
         </h1>

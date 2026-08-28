@@ -9,7 +9,7 @@ export function ProgressMeter({ completed, total, submitting }: Props) {
   const remaining = total - completed;
 
   return (
-    <div className="sticky bottom-0 -mx-4 border-t border-line bg-paper/95 px-4 py-3 backdrop-blur sm:-mx-6 sm:px-6 lg:static lg:mx-0 lg:rounded-xl lg:border lg:bg-paper-raised lg:px-5 lg:py-4">
+    <div className="sticky bottom-0 z-20 -mx-4 border-t border-line bg-paper/95 px-4 py-3 backdrop-blur sm:-mx-6 sm:px-6 lg:bottom-4 lg:mx-0 lg:rounded-xl lg:border lg:bg-paper-raised/95 lg:px-5 lg:py-4 lg:shadow-lg">
       <div className="flex items-center gap-4">
         <div className="min-w-0 flex-1">
           <p className="text-sm font-medium text-ink">

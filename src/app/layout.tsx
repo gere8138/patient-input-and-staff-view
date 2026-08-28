@@ -17,7 +17,7 @@ const plexMono = IBM_Plex_Mono({
 });
 
 export const metadata: Metadata = {
-  title: 'Agnos Intake — real-time patient form',
+  title: 'Agnos — real-time patient form',
   description: 'Patient intake form with a live staff monitoring console.',
 };
 

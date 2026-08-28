@@ -51,7 +51,7 @@ export function StaffDashboard({ focusSessionId }: { focusSessionId?: string }) 
           <div>
             <h1 className="text-lg font-semibold">Intake console</h1>
             <p className="mt-0.5 font-mono text-[11px] tracking-widest text-muted uppercase">
-              Agnos clinic · front desk
+              Agnos · staff view
             </p>
           </div>
 

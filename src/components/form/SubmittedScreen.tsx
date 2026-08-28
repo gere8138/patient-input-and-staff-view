@@ -15,7 +15,7 @@ export function SubmittedScreen({ reference, name }: { reference: string; name: 
       <p className="mt-3 text-ink-soft">
         Your details are with the front desk. Please take a seat — a member of staff will call you shortly.
       </p>
-      <p className="mt-8 text-xs tracking-wide text-muted uppercase">Reference</p>
+      <p className="mt-8 text-xs tracking-wide text-muted uppercase">Form ID</p>
       <p className="font-mono text-xl tracking-widest text-ink">{reference}</p>
       <Link
         href="/"

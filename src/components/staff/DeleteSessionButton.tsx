@@ -55,7 +55,7 @@ export function DeleteSessionButton({ onConfirm, size = 'regular', sessionName }
           onConfirm();
         }}
         aria-label={`Confirm deleting the session for ${sessionName}`}
-        className={`rounded-md bg-alert font-medium text-white transition-colors hover:bg-[var(--color-alert-strong)] focus-visible:bg-[var(--color-alert-strong)] ${base}`}
+        className={`rounded-md bg-alert font-medium text-white transition-colors hover:bg-alert-strong focus-visible:bg-alert-strong ${base}`}
       >
         Confirm
       </button>

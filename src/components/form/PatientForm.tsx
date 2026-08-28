@@ -322,18 +322,12 @@ export function PatientForm({ sessionId }: { sessionId: string }) {
 
   return (
     <main className="min-h-dvh bg-paper text-ink">
+      <ConnectionBadge state={connection} />
       <div className="mx-auto max-w-[720px] px-4 pt-8 pb-4 sm:px-6 lg:pt-14">
         <header className="mb-8">
-          <div className="flex flex-wrap items-center justify-between gap-3">
-            <p className="font-mono text-xs tracking-widest text-muted uppercase">Agnos clinic · intake</p>
-            <ConnectionBadge state={connection} />
-          </div>
+          <p className="font-mono text-xs tracking-widest text-muted uppercase">Agnos · form</p>
           <h1 className="mt-4 text-2xl font-semibold text-balance sm:text-3xl">Before we see you</h1>
-          <p className="mt-2 max-w-prose text-ink-soft">
-            Fill this in at your own pace. The front desk can see your answers as you type, so you will not be
-            asked for them again.
-          </p>
-          <p className="mt-3 font-mono text-xs text-muted">Session {sessionId}</p>
+          <p className="mt-3 font-mono text-xs text-muted">Form ID {sessionId}</p>
         </header>
 
         <form ref={formRef} onSubmit={onSubmit} noValidate className="flex flex-col gap-8 pb-4">
