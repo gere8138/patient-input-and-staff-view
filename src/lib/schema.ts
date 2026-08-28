@@ -49,13 +49,13 @@ export const GENDER_VALUES = ['female', 'male', 'prefer_not_to_say'] as const;
 
 export const patientSchema = z
   .object({
-    firstName: z.string().trim().min(1, "Enter the patient's first name").max(60),
+    firstName: z.string().trim().min(1, "Please enter your first name").max(60),
     middleName: z.string().trim().max(60).optional().or(z.literal('')),
-    lastName: z.string().trim().min(1, "Enter the patient's last name").max(60),
+    lastName: z.string().trim().min(1, "Please enter your last name").max(60),
     dateOfBirth: z
       .string()
       .min(1, 'Enter a date of birth')
-      .refine(isRealPastDate, 'Enter a real date of birth in the past'),
+      .refine(isRealPastDate, 'Please enter a valid date'),
     gender: z.enum(GENDER_VALUES, { errorMap: () => ({ message: 'Choose an option' }) }),
     phoneCountry: z
       .string()
@@ -65,8 +65,8 @@ export const patientSchema = z
       .string()
       .trim()
       .min(1, 'Enter an email address')
-      .email('Enter an email like name@example.com'),
-    address: z.string().trim().min(5, 'Enter a street address').max(300),
+      .email('Please enter a valid email address like name@example.com'),
+    address: z.string().trim().min(5, 'Please enter a valid address').max(300),
     preferredLanguage: z.string().min(1, 'Choose a preferred language'),
     nationality: z.string().min(1, 'Choose a nationality'),
     emergencyContactPhoneCountry: z
@@ -99,12 +99,12 @@ export function crossFieldIssues(data: Partial<PatientData>): Record<string, str
 
   const ownCountry = data.phoneCountry || DEFAULT_PHONE_COUNTRY;
   if (data.phone?.trim() && !isValidPhone(data.phone, ownCountry)) {
-    issues.phone = `Enter a valid ${countryName(ownCountry)} phone number`;
+    issues.phone = `Please enter a valid ${countryName(ownCountry)} phone number`;
   }
 
   const emergencyCountry = data.emergencyContactPhoneCountry || DEFAULT_PHONE_COUNTRY;
   if (data.emergencyContactPhone?.trim() && !isValidPhone(data.emergencyContactPhone, emergencyCountry)) {
-    issues.emergencyContactPhone = `Enter a valid ${countryName(emergencyCountry)} phone number`;
+    issues.emergencyContactPhone = `Please enter a valid ${countryName(emergencyCountry)} phone number`;
   }
 
   // The contact's name and relationship are independent and optional: a number
