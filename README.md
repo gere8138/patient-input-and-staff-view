@@ -6,7 +6,7 @@ Two screens over one shared session:
 
 | Screen | Route | Shown as | Who it is for |
 | --- | --- | --- | --- |
-| Patient form | `/form/[sessionId]` | *Agnos · form* → "Before we see you" | A patient on a phone in the waiting room |
+| Patient form | `/form/[sessionId]` | *Agnos · form* → "Before we see you" | A patient to fill |
 | Intake Form Console | `/staff`, `/staff/[sessionId]` | *Agnos · staff console* | Clinic staff at a desk or tablet |
 
 Every keystroke on the patient form appears in the console with no refresh, and each session is
