@@ -7,10 +7,12 @@ interface Props {
   spec: FieldSpec;
   value: string | undefined;
   isActive: boolean;
+  /** Used where a value needs sibling data to render, such as phone + country. */
+  formatted?: string;
 }
 
-export function FieldRow({ spec, value, isActive }: Props) {
-  const shown = displayValue(spec.key, value);
+export function FieldRow({ spec, value, isActive, formatted }: Props) {
+  const shown = formatted ?? displayValue(spec.key, value);
   const [flash, setFlash] = useState(false);
   const previous = useRef(shown);
 

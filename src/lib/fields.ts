@@ -1,6 +1,7 @@
+import { COUNTRIES, DEFAULT_PHONE_COUNTRY, flagEmoji } from './countries';
 import type { PatientField } from './schema';
 
-export type FieldType = 'text' | 'tel' | 'email' | 'date' | 'textarea' | 'select' | 'radio';
+export type FieldType = 'text' | 'tel' | 'email' | 'date' | 'textarea' | 'select' | 'radio' | 'phone';
 
 export type SectionId = 'identity' | 'contact' | 'background' | 'emergency';
 
@@ -24,6 +25,11 @@ export interface FieldSpec {
   options?: FieldOption[];
   /** Rendered only when another field holds a particular value. */
   showWhen?: { key: PatientField; equals: string };
+  /**
+   * Carried by another field's control rather than getting one of its own —
+   * it is never rendered as a standalone input or as its own staff row.
+   */
+  internal?: boolean;
 }
 
 export interface SectionSpec {
@@ -36,7 +42,11 @@ export const SECTIONS: SectionSpec[] = [
   { id: 'identity', title: 'About you', description: 'Your name and basic details, as they appear on your ID.' },
   { id: 'contact', title: 'How we reach you', description: 'Used for appointment reminders and results.' },
   { id: 'background', title: 'Background', description: 'Helps us assign the right staff and interpreter.' },
-  { id: 'emergency', title: 'Emergency contact', description: 'Optional, but useful if we need to reach someone.' },
+  {
+    id: 'emergency',
+    title: 'Emergency contact',
+    description: 'A number we can call if we cannot reach you. A name and relationship help, but are optional.',
+  },
 ];
 
 export const LANGUAGES: FieldOption[] = [
@@ -56,28 +66,27 @@ export const LANGUAGES: FieldOption[] = [
   { value: 'other', label: 'Other' },
 ];
 
-export const NATIONALITIES: FieldOption[] = [
-  { value: 'thai', label: 'Thai' },
-  { value: 'american', label: 'American' },
-  { value: 'australian', label: 'Australian' },
-  { value: 'british', label: 'British' },
-  { value: 'cambodian', label: 'Cambodian' },
-  { value: 'chinese', label: 'Chinese' },
-  { value: 'french', label: 'French' },
-  { value: 'german', label: 'German' },
-  { value: 'indian', label: 'Indian' },
-  { value: 'indonesian', label: 'Indonesian' },
-  { value: 'japanese', label: 'Japanese' },
-  { value: 'korean', label: 'Korean' },
-  { value: 'lao', label: 'Lao' },
-  { value: 'malaysian', label: 'Malaysian' },
-  { value: 'myanmar', label: 'Myanmar' },
-  { value: 'philippine', label: 'Philippine' },
-  { value: 'russian', label: 'Russian' },
-  { value: 'singaporean', label: 'Singaporean' },
-  { value: 'vietnamese', label: 'Vietnamese' },
-  { value: 'other', label: 'Other' },
-];
+/** Thailand leads both country lists — this is a Thai clinic product. */
+function thailandFirst<T extends { value: string }>(options: T[]): T[] {
+  const home = options.filter((option) => option.value === DEFAULT_PHONE_COUNTRY);
+  return [...home, ...options.filter((option) => option.value !== DEFAULT_PHONE_COUNTRY)];
+}
+
+/** Every country libphonenumber can validate a number for. */
+export const NATIONALITIES: FieldOption[] = thailandFirst(
+  COUNTRIES.map((country) => ({ value: country.iso, label: country.nationality })).sort((a, b) =>
+    a.label.localeCompare(b.label, 'en'),
+  ),
+);
+
+/** Flag + dial code, for the phone number country pickers. */
+export const PHONE_COUNTRIES: FieldOption[] = thailandFirst(
+  COUNTRIES.map((country) => ({
+    value: country.iso,
+    label: `${flagEmoji(country.iso)} +${country.dial} ${country.name}`,
+  })),
+);
+
 
 export const GENDERS: FieldOption[] = [
   { value: 'female', label: 'Female' },
@@ -158,28 +167,38 @@ export const FIELDS: FieldSpec[] = [
     showWhen: { key: 'gender', equals: 'other' },
   },
   {
+    key: 'phoneCountry',
+    label: 'Phone country',
+    section: 'contact',
+    type: 'select',
+    required: false,
+    span: 'half',
+    options: PHONE_COUNTRIES,
+    internal: true,
+  },
+  {
     key: 'phone',
     label: 'Phone number',
     section: 'contact',
-    type: 'tel',
+    type: 'phone',
     required: true,
     span: 'half',
     placeholder: '081 234 5678',
     autoComplete: 'tel',
     inputMode: 'tel',
-    help: '9–15 digits. A country code is fine.',
+    help: 'Pick the country, then the number as you would dial it there.',
   },
   {
     key: 'email',
     label: 'Email',
     section: 'contact',
     type: 'email',
-    required: false,
+    required: true,
     span: 'half',
     placeholder: 'name@example.com',
     autoComplete: 'email',
     inputMode: 'email',
-    help: 'If you have one.',
+    help: 'Where we send results and reminders.',
   },
   {
     key: 'address',
@@ -221,6 +240,28 @@ export const FIELDS: FieldSpec[] = [
     help: 'Only if it affects the care you would like.',
   },
   {
+    key: 'emergencyContactPhoneCountry',
+    label: 'Emergency contact phone country',
+    section: 'emergency',
+    type: 'select',
+    required: false,
+    span: 'half',
+    options: PHONE_COUNTRIES,
+    internal: true,
+  },
+  {
+    key: 'emergencyContactPhone',
+    label: 'Contact number',
+    section: 'emergency',
+    type: 'phone',
+    required: true,
+    span: 'half',
+    placeholder: '081 234 5678',
+    autoComplete: 'tel',
+    inputMode: 'tel',
+    help: 'Someone we can call if we cannot reach you.',
+  },
+  {
     key: 'emergencyContactName',
     label: 'Contact name',
     section: 'emergency',
@@ -246,8 +287,14 @@ export const FIELD_BY_KEY: Record<PatientField, FieldSpec> = Object.fromEntries(
 
 export const REQUIRED_FIELDS: PatientField[] = FIELDS.filter((f) => f.required).map((f) => f.key);
 
+/** Which field holds the dialling country for each phone number field. */
+export const PHONE_COUNTRY_FOR: Partial<Record<PatientField, PatientField>> = {
+  phone: 'phoneCountry',
+  emergencyContactPhone: 'emergencyContactPhoneCountry',
+};
+
 export function fieldsInSection(section: SectionId): FieldSpec[] {
-  return FIELDS.filter((field) => field.section === section);
+  return FIELDS.filter((field) => field.section === section && !field.internal);
 }
 
 export function labelFor(key: PatientField): string {

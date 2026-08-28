@@ -1,15 +1,35 @@
 'use client';
 
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { useForm, useWatch, type UseFormRegisterReturn } from 'react-hook-form';
+import {
+  useForm,
+  useWatch,
+  type FieldErrors,
+  type Resolver,
+  type UseFormRegisterReturn,
+} from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
-import Link from 'next/link';
-import { countCompletedRequired, FIELDS, fieldsInSection, REQUIRED_FIELDS, SECTIONS, type FieldSpec } from '@/lib/fields';
-import { emptyPatientData, patientSchema, type PatientData, type PatientField } from '@/lib/schema';
+import {
+  countCompletedRequired,
+  fieldsInSection,
+  PHONE_COUNTRY_FOR,
+  REQUIRED_FIELDS,
+  SECTIONS,
+  type FieldSpec,
+} from '@/lib/fields';
+import {
+  crossFieldIssues,
+  emptyPatientData,
+  patientSchema,
+  type PatientData,
+  type PatientField,
+} from '@/lib/schema';
+import { DEFAULT_PHONE_COUNTRY } from '@/lib/countries';
 import { usePatientSession } from '@/hooks/usePatientSession';
 import { ConnectionBadge } from './ConnectionBadge';
 import { DateField } from './DateField';
 import { FormSection } from './FormSection';
+import { PhoneField } from './PhoneField';
 import { ProgressMeter } from './ProgressMeter';
 import { RadioGroup } from './RadioGroup';
 import { SelectField } from './SelectField';
@@ -18,6 +38,25 @@ import { TextAreaField } from './TextAreaField';
 import { TextField } from './TextField';
 
 const draftKey = (sessionId: string) => `agnos:draft:${sessionId}`;
+
+/**
+ * Fields whose validity depends on another one. React Hook Form only surfaces
+ * the error for the field just interacted with, so after finishing with a key
+ * here its partners are re-judged too — otherwise "you gave a name, now give
+ * the relationship" would stay invisible until submit.
+ */
+const DEPENDENTS: Partial<Record<PatientField, PatientField[]>> = {
+  phoneCountry: ['phone'],
+  emergencyContactPhoneCountry: ['emergencyContactPhone'],
+  gender: ['genderSelfDescribe'],
+};
+
+/** Choosing from a list is a finished action, so its partners re-check at once. */
+const REVALIDATE_ON_CHANGE = new Set<PatientField>([
+  'phoneCountry',
+  'emergencyContactPhoneCountry',
+  'gender',
+]);
 
 function loadDraft(sessionId: string): PatientData {
   if (typeof window === 'undefined') return emptyPatientData;
@@ -29,6 +68,26 @@ function loadDraft(sessionId: string): PatientData {
     return emptyPatientData;
   }
 }
+
+const zodPatientResolver = zodResolver(patientSchema) as Resolver<PatientData>;
+
+/**
+ * Zod skips object-level refinements while any base field is still empty, so on
+ * a half-filled form the cross-field rules would stay silent until submit.
+ * This layers them back on so the patient sees them as they type.
+ */
+const patientResolver: Resolver<PatientData> = async (values, context, options) => {
+  const result = await zodPatientResolver(values, context, options);
+  const errors = { ...result.errors } as FieldErrors<PatientData>;
+  const byField = errors as Record<string, { type: string; message: string }>;
+
+  for (const [key, message] of Object.entries(crossFieldIssues(values))) {
+    if (!byField[key]) byField[key] = { type: 'cross-field', message };
+  }
+
+  if (Object.keys(errors).length > 0) return { values: {}, errors };
+  return { values: values as PatientData, errors: {} };
+};
 
 export function PatientForm({ sessionId }: { sessionId: string }) {
   const [completed, setCompleted] = useState(0);
@@ -42,11 +101,13 @@ export function PatientForm({ sessionId }: { sessionId: string }) {
     handleSubmit,
     getValues,
     reset,
+    setValue,
     setError,
+    trigger,
     setFocus: focusInput,
     formState: { errors, isSubmitting },
   } = useForm<PatientData>({
-    resolver: zodResolver(patientSchema),
+    resolver: patientResolver,
     mode: 'onTouched',
     defaultValues: emptyPatientData,
   });
@@ -60,11 +121,19 @@ export function PatientForm({ sessionId }: { sessionId: string }) {
     setCompleted(countCompletedRequired(draft));
   }, [sessionId, reset]);
 
-  const [gender, dateOfBirth] = useWatch({ control, name: ['gender', 'dateOfBirth'] });
+  const [gender, dateOfBirth, phoneCountry, emergencyPhoneCountry] = useWatch({
+    control,
+    name: ['gender', 'dateOfBirth', 'phoneCountry', 'emergencyContactPhoneCountry'],
+  });
 
   const onFieldChanged = useCallback(
     (key: PatientField, value: string) => {
       pushField(key, value);
+      // The field itself is included: picking a valid option must clear its own
+      // error in the same pass that re-judges its partners.
+      if (REVALIDATE_ON_CHANGE.has(key)) {
+        void trigger([key, ...(DEPENDENTS[key] ?? [])]);
+      }
       const values = getValues();
       setCompleted(countCompletedRequired(values));
       try {
@@ -73,7 +142,16 @@ export function PatientForm({ sessionId }: { sessionId: string }) {
         // Private browsing or a full quota — the socket copy is still authoritative.
       }
     },
-    [pushField, getValues, sessionId],
+    [pushField, getValues, sessionId, trigger],
+  );
+
+  /** The combobox writes through form state rather than a native change event. */
+  const onCountryPicked = useCallback(
+    (key: PatientField) => (iso: string) => {
+      setValue(key, iso, { shouldDirty: true });
+      onFieldChanged(key, iso);
+    },
+    [setValue, onFieldChanged],
   );
 
   const bind = useCallback(
@@ -88,11 +166,13 @@ export function PatientForm({ sessionId }: { sessionId: string }) {
         },
         onBlur: async (event) => {
           await registration.onBlur(event);
+          const dependents = DEPENDENTS[key];
+          if (dependents?.length) void trigger(dependents);
           setFocus(null);
         },
       };
     },
-    [register, onFieldChanged, setFocus],
+    [register, onFieldChanged, setFocus, trigger],
   );
 
   const onSubmit = handleSubmit(
@@ -144,6 +224,22 @@ export function PatientForm({ sessionId }: { sessionId: string }) {
       case 'date':
         control_ = <DateField {...common} value={dateOfBirth} />;
         break;
+      case 'phone': {
+        const countryKey = PHONE_COUNTRY_FOR[spec.key] as PatientField;
+        const current =
+          (countryKey === 'phoneCountry' ? phoneCountry : emergencyPhoneCountry) ||
+          DEFAULT_PHONE_COUNTRY;
+        control_ = (
+          <PhoneField
+            {...common}
+            countryKey={countryKey}
+            countryRegistration={register(countryKey)}
+            country={current}
+            onCountryChange={onCountryPicked(countryKey)}
+          />
+        );
+        break;
+      }
       case 'textarea':
         control_ = <TextAreaField {...common} />;
         break;
@@ -198,13 +294,6 @@ export function PatientForm({ sessionId }: { sessionId: string }) {
 
           <ProgressMeter completed={completed} total={REQUIRED_FIELDS.length} submitting={isSubmitting} />
         </form>
-
-        <footer className="py-8 text-center text-xs text-muted">
-          {FIELDS.length} questions ·{' '}
-          <Link href="/staff" className="underline underline-offset-4 hover:text-ink-soft">
-            staff view
-          </Link>
-        </footer>
       </div>
     </main>
   );

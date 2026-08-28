@@ -31,11 +31,11 @@ Every line of the assignment mapped to where it is satisfied. This table is the 
 | R3 | Last Name | `identity` | ☑ |
 | R4 | Date of Birth | `identity`, native date input + age hint | ☑ |
 | R5 | Gender | `identity`, radio group + self-describe option | ☑ |
-| R6 | Phone Number | `contact`, validated | ☑ |
-| R7 | Email | `contact`, validated | ☑ |
+| R6 | Phone Number | `contact`, country picker + per-country validation | ☑ |
+| R7 | Email | `contact`, required and validated | ☑ |
 | R8 | Address | `contact`, textarea | ☑ |
 | R9 | Preferred Language | `background`, select | ☑ |
-| R10 | Nationality | `background`, select | ☑ |
+| R10 | Nationality | `background`, select over all 245 countries | ☑ |
 | R11 | Emergency Contact (optional: name + relationship) | `emergency` | ☑ |
 | R12 | Religion (optional) | `background` | ☑ |
 | R13 | Form validation (required fields, valid phone, valid email) | Zod schema + RHF resolver | ☑ |
@@ -62,7 +62,8 @@ Every line of the assignment mapped to where it is satisfied. This table is the 
 | Real-time | Socket.IO (WebSocket transport, long-polling fallback) | Room-per-session maps directly to the problem. Auto-reconnect and fallback are already solved, which is what makes it safe on a free-tier host. |
 | Server | Custom Node server (`server.ts`) hosting both Next.js and Socket.IO | Single process, single deploy, single origin — no CORS, no second service to keep alive. |
 | State store | In-memory `Map<sessionId, SessionState>` with TTL sweep | The assignment scopes this as a front-end task; no persistence is required. Documented as a deliberate limit with the upgrade path (§14). |
-| Testing | Vitest + Testing Library for the Zod schema and status reducer | Small and targeted: validation rules and the presence state machine are the two places a silent bug would be invisible in a demo. |
+| Phone/country data | `libphonenumber-js` (max metadata) | A phone field that claims to validate must respect each country's numbering plan; hand-rolling that for 245 regions is a liability. The country/dial/flag list is generated from the same source, so the picker and the validator can never disagree. |
+| Testing | Vitest for the Zod schema, the phone rules and the status reducer | Small and targeted: validation rules and the presence state machine are the two places a silent bug would be invisible in a demo. |
 
 ### The one real decision: where the socket lives
 
@@ -148,7 +149,7 @@ export const patientSchema = z.object({
   gender:         z.enum(['female', 'male', 'other', 'prefer_not_to_say']),
   genderSelfDescribe: z.string().max(40).optional(),
   phone:          z.string().refine(isValidPhone, 'Enter a phone number with 9–15 digits'),
-  email:          z.string().email('Enter an email like name@example.com').or(z.literal('')),
+  email:          z.string().min(1, 'Enter an email address').email('Enter an email like name@example.com'),
   address:        z.string().min(5, 'Enter a street address').max(300),
   preferredLanguage: z.string().min(1, 'Choose a preferred language'),
   nationality:    z.string().min(1, 'Choose a nationality'),
@@ -185,10 +186,11 @@ export interface SessionState {
 | First name, Last name | Required, 1–60 chars |
 | Date of birth | Required, parseable, not in the future, age ≤ 120 |
 | Gender | Required; `other` reveals a free-text field |
-| Phone | Required; 9–15 digits after stripping spaces, dashes, brackets; leading `+` allowed |
-| Email | Optional but validated if present ("email if applicable" in the brief) |
+| Phone | Required; country picker + number, validated against that country's numbering plan via `libphonenumber-js` |
+| Email | Required and validated (the brief allows optional; the product owner asked for it to be required) |
 | Address | Required, min 5 chars |
-| Preferred language, Nationality | Required, from a list, searchable |
+| Preferred language | Required, from a list |
+| Nationality | Required; all 245 countries and territories, by demonym where one exists |
 | Emergency contact | Optional pair — if a name is given, the relationship is required |
 | Religion | Optional, free text |
 

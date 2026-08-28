@@ -109,6 +109,7 @@ backgrounded, or lost its connection — which is exactly the case staff need to
 ```
 server.ts                     Custom server: Next.js handler + Socket.IO + /healthz
 src/lib/fields.ts             Field registry — the spine both views render from
+src/lib/countries.ts          Generated: 245 countries, dial codes, demonyms, flags
 src/lib/schema.ts             Zod schema, shared by the client and the server
 src/lib/presence.ts           Status derivation and sort order (pure, tested)
 src/lib/realtime/events.ts    Typed event contract shared by client and server
@@ -122,6 +123,35 @@ tests/                        Vitest: schema rules and the presence machine
 
 Adding a field is one entry in `src/lib/fields.ts` plus one line in the Zod schema — the form, the
 progress meter and the staff detail pane all pick it up.
+
+`src/lib/countries.ts` is generated, not hand-maintained:
+
+```bash
+npm run gen:countries
+```
+
+It is committed rather than built at runtime so the server and the browser always render an
+identical `<option>` list — deriving names from `Intl` at render time risks a hydration mismatch
+when Node's ICU data and the browser's disagree.
+
+## Phone numbers and nationality
+
+The phone field is a country picker plus a number, and validity is judged by that country's own
+numbering plan via `libphonenumber-js` — not by a generic digit count. `081 234 5678` is a valid
+Thai mobile and an invalid Singapore number, and the form says so:
+
+| Country | `081 234 5678` | Message |
+| --- | --- | --- |
+| Thailand | valid | — |
+| United States | invalid | "Enter a valid United States phone number" |
+| Singapore | invalid | "Enter a valid Singapore phone number" |
+
+Changing the country re-judges a number already typed. The staff console shows the number in
+international form (`+44 7400 123456`), so the front desk can dial it without guessing the prefix.
+
+Nationality covers all 245 countries and territories, labelled by demonym where one is in common
+use ("Thai", "British", "Ivorian") and by country name where one is not ("Gibraltar", "Guadeloupe").
+Both lists come from the same generated file, so a country can never appear in one and not the other.
 
 ## Design notes
 

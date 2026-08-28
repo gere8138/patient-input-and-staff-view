@@ -28,37 +28,38 @@ export function FieldShell({
   children,
   as = 'label',
 }: FieldShellProps) {
-  const helpId = help ? `${id}-help` : undefined;
-  const errorId = error ? `${id}-error` : undefined;
-
   const heading = (
-    <span className="flex items-baseline gap-2 text-sm font-medium text-ink">
+    <span className="flex items-baseline gap-2 text-sm leading-5 font-medium text-ink">
       {label}
       {!required && <span className="text-xs font-normal text-muted">Optional</span>}
     </span>
   );
 
-  const body = (
-    <>
-      {help && (
-        <span id={helpId} className="block text-xs text-ink-soft">
-          {help}
-        </span>
-      )}
-      {children}
-      {error && (
-        <span id={errorId} role="alert" className="block text-sm text-alert">
+  /**
+   * Every field reserves one line here whether or not it has anything to say.
+   * An error appearing, or the age hint resolving, must never nudge the field
+   * beside it or the ones below it.
+   */
+  const message = (
+    <span className="block min-h-5 text-xs leading-5">
+      {error ? (
+        <span id={`${id}-error`} role="alert" className="text-alert">
           {error}
         </span>
-      )}
-    </>
+      ) : help ? (
+        <span id={`${id}-help`} className="text-ink-soft">
+          {help}
+        </span>
+      ) : null}
+    </span>
   );
 
   if (as === 'group') {
     return (
       <fieldset className="flex flex-col gap-1.5">
         <legend className="mb-1.5">{heading}</legend>
-        {body}
+        {children}
+        {message}
       </fieldset>
     );
   }
@@ -66,12 +67,14 @@ export function FieldShell({
   return (
     <div className="flex flex-col gap-1.5">
       <label htmlFor={id}>{heading}</label>
-      {body}
+      {children}
+      {message}
     </div>
   );
 }
 
+/** Only one of the two is ever rendered, so only one is ever referenced. */
 export function describedBy(id: string, help?: string, error?: string): string | undefined {
-  const ids = [help ? `${id}-help` : null, error ? `${id}-error` : null].filter(Boolean);
-  return ids.length ? ids.join(' ') : undefined;
+  if (error) return `${id}-error`;
+  return help ? `${id}-help` : undefined;
 }

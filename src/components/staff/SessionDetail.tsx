@@ -1,6 +1,8 @@
 'use client';
 
-import { fieldsInSection, SECTIONS } from '@/lib/fields';
+import { fieldsInSection, PHONE_COUNTRY_FOR, SECTIONS } from '@/lib/fields';
+import { formatPhone } from '@/lib/schema';
+import { DEFAULT_PHONE_COUNTRY } from '@/lib/countries';
 import { relativeTime, STATUS_LABEL } from '@/lib/presence';
 import { sessionDisplayName, type SessionState } from '@/lib/realtime/events';
 import { FieldRow } from './FieldRow';
@@ -54,7 +56,19 @@ export function SessionDetail({ session }: { session: SessionState }) {
                     key={spec.key}
                     spec={spec}
                     value={session.data[spec.key]}
-                    isActive={session.activeField === spec.key && session.status === 'filling'}
+                    formatted={
+                      PHONE_COUNTRY_FOR[spec.key]
+                        ? formatPhone(
+                            session.data[spec.key] ?? '',
+                            session.data[PHONE_COUNTRY_FOR[spec.key]!] || DEFAULT_PHONE_COUNTRY,
+                          )
+                        : undefined
+                    }
+                    isActive={
+                      session.status === 'filling' &&
+                      (session.activeField === spec.key ||
+                        session.activeField === PHONE_COUNTRY_FOR[spec.key])
+                    }
                   />
                 ))}
               </div>

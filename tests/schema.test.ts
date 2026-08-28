@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
-import { fieldErrors, isValidPhone, patientSchema, type PatientData } from '@/lib/schema';
-import { countCompletedRequired, REQUIRED_FIELDS } from '@/lib/fields';
+import { fieldErrors, formatPhone, isValidPhone, patientSchema, type PatientData } from '@/lib/schema';
+import { countCompletedRequired, NATIONALITIES, PHONE_COUNTRIES, REQUIRED_FIELDS } from '@/lib/fields';
+import { COUNTRIES, flagEmoji } from '@/lib/countries';
 
 const valid: PatientData = {
   firstName: 'Somchai',
@@ -9,11 +10,14 @@ const valid: PatientData = {
   dateOfBirth: '1988-04-12',
   gender: 'male',
   genderSelfDescribe: '',
+  phoneCountry: 'TH',
   phone: '081 234 5678',
   email: 'somchai@example.com',
   address: '221 Sukhumvit Road, Khlong Toei, Bangkok 10110',
   preferredLanguage: 'thai',
-  nationality: 'thai',
+  nationality: 'TH',
+  emergencyContactPhoneCountry: 'TH',
+  emergencyContactPhone: '0891234567',
   emergencyContactName: '',
   emergencyContactRelationship: '',
   religion: '',
@@ -29,22 +33,41 @@ describe('patientSchema', () => {
     expect(patientSchema.safeParse(valid).success).toBe(true);
   });
 
-  it('accepts a form with no email, which the brief marks optional', () => {
-    expect(errorsFor({ email: '' })).toEqual({});
+  it('requires an email address', () => {
+    expect(errorsFor({ email: '' })).toHaveProperty('email');
   });
 
   it('rejects a malformed email when one is given', () => {
     expect(errorsFor({ email: 'somchai@' })).toHaveProperty('email');
   });
 
-  it('requires both halves of the emergency contact or neither', () => {
-    expect(errorsFor({ emergencyContactName: 'Malee' })).toHaveProperty(
-      'emergencyContactRelationship',
-    );
-    expect(errorsFor({ emergencyContactRelationship: 'spouse' })).toHaveProperty(
-      'emergencyContactName',
-    );
-    expect(errorsFor({ emergencyContactName: 'Malee', emergencyContactRelationship: 'spouse' })).toEqual({});
+  it('requires an emergency contact number', () => {
+    expect(errorsFor({ emergencyContactPhone: '' })).toHaveProperty('emergencyContactPhone');
+  });
+
+  it('validates the emergency number against its own country', () => {
+    expect(
+      errorsFor({ emergencyContactPhoneCountry: 'US', emergencyContactPhone: '0891234567' }),
+    ).toHaveProperty('emergencyContactPhone');
+    expect(
+      errorsFor({ emergencyContactPhoneCountry: 'US', emergencyContactPhone: '(415) 555-2671' }),
+    ).toEqual({});
+  });
+
+  it('treats the contact name and relationship as independent and optional', () => {
+    expect(errorsFor({ emergencyContactName: 'Malee' })).toEqual({});
+    expect(errorsFor({ emergencyContactRelationship: 'spouse' })).toEqual({});
+    expect(errorsFor({ emergencyContactName: '', emergencyContactRelationship: '' })).toEqual({});
+  });
+
+  it('keeps the two phone numbers on separate country rules', () => {
+    const errors = errorsFor({
+      phoneCountry: 'TH',
+      phone: '081 234 5678',
+      emergencyContactPhoneCountry: 'GB',
+      emergencyContactPhone: '07400 123456',
+    });
+    expect(errors).toEqual({});
   });
 
   it('requires a self-description when gender is "other"', () => {
@@ -63,12 +86,99 @@ describe('patientSchema', () => {
 });
 
 describe('isValidPhone', () => {
-  it.each(['0812345678', '081 234 5678', '+66 81-234-5678', '(02) 123 4567'])('accepts %s', (input) => {
-    expect(isValidPhone(input)).toBe(true);
+  it.each([
+    ['TH', '0812345678'],
+    ['TH', '081 234 5678'],
+    ['TH', '+66 81 234 5678'],
+    ['US', '(415) 555-2671'],
+    ['GB', '07400 123456'],
+    ['JP', '090-1234-5678'],
+    ['SG', '8123 4567'],
+  ])('accepts a real %s number: %s', (country, input) => {
+    expect(isValidPhone(input, country)).toBe(true);
   });
 
-  it.each(['12345', '', 'not a phone', '1234567890123456'])('rejects %s', (input) => {
-    expect(isValidPhone(input)).toBe(false);
+  it.each([
+    ['TH', '12345'],
+    ['TH', ''],
+    ['TH', 'not a phone'],
+    ['TH', '08123456789012'],
+    ['US', '0812345678'],
+    ['SG', '0812345678'],
+    ['GB', '12345'],
+  ])('rejects an invalid %s number: %s', (country, input) => {
+    expect(isValidPhone(input, country)).toBe(false);
+  });
+
+  it('judges the same digits differently depending on the country', () => {
+    // A valid Thai mobile is not a valid Singapore number.
+    expect(isValidPhone('0812345678', 'TH')).toBe(true);
+    expect(isValidPhone('0812345678', 'SG')).toBe(false);
+  });
+
+  it('rejects an unknown country code', () => {
+    expect(isValidPhone('0812345678', 'ZZ')).toBe(false);
+  });
+});
+
+describe('phone validation through the schema', () => {
+  it('rejects a number that is invalid for the chosen country', () => {
+    expect(errorsFor({ phoneCountry: 'US', phone: '081 234 5678' })).toHaveProperty('phone');
+  });
+
+  it('accepts the same number once the country matches', () => {
+    expect(errorsFor({ phoneCountry: 'TH', phone: '081 234 5678' })).toEqual({});
+  });
+
+  it('names the country in the error message', () => {
+    expect(errorsFor({ phoneCountry: 'JP', phone: '081 234 5678' }).phone).toContain('Japan');
+  });
+});
+
+describe('formatPhone', () => {
+  it('renders an international form for the staff console', () => {
+    expect(formatPhone('0812345678', 'TH')).toBe('+66 81 234 5678');
+    expect(formatPhone('(415) 555-2671', 'US')).toBe('+1 415 555 2671');
+  });
+});
+
+describe('country data', () => {
+  it('covers every country libphonenumber can validate', () => {
+    expect(COUNTRIES.length).toBeGreaterThanOrEqual(240);
+  });
+
+  it('gives every country a dial code and a nationality', () => {
+    for (const country of COUNTRIES) {
+      expect(country.dial).toMatch(/^\d+$/);
+      expect(country.nationality.length).toBeGreaterThan(0);
+    }
+  });
+
+  it('offers one nationality option per country', () => {
+    expect(NATIONALITIES).toHaveLength(COUNTRIES.length);
+  });
+
+  it('puts Thailand first in both country lists', () => {
+    expect(NATIONALITIES[0]).toEqual({ value: 'TH', label: 'Thai' });
+    expect(PHONE_COUNTRIES[0].value).toBe('TH');
+    expect(PHONE_COUNTRIES[0].label).toContain('+66');
+  });
+
+  it('lists every country exactly once in the phone picker', () => {
+    expect(new Set(PHONE_COUNTRIES.map((o) => o.value)).size).toBe(COUNTRIES.length);
+    expect(new Set(NATIONALITIES.map((o) => o.value)).size).toBe(COUNTRIES.length);
+  });
+
+  it('marks one primary country per shared dialling code', () => {
+    const fortyFour = COUNTRIES.filter((c) => c.dial === '44');
+    expect(fortyFour.filter((c) => c.primary).map((c) => c.iso)).toEqual(['GB']);
+    expect(COUNTRIES.find((c) => c.iso === 'US')?.primary).toBe(true);
+    expect(COUNTRIES.find((c) => c.iso === 'JE')?.primary).toBe(false);
+  });
+
+  it('builds a flag from the ISO code', () => {
+    expect(flagEmoji('TH')).toBe('🇹🇭');
+    expect(flagEmoji('GB')).toBe('🇬🇧');
   });
 });
 

@@ -37,11 +37,10 @@ export function ProgressMeter({ completed, total, submitting }: Props) {
           {submitting ? 'Sending…' : 'Submit'}
         </button>
       </div>
-      {remaining > 0 && (
-        <p className="mt-2 text-xs text-muted">
-          {remaining} still to go. You can submit once they are all filled in.
-        </p>
-      )}
+      {/* Reserved so the bar does not resize as the last field is filled in. */}
+      <p className="mt-2 min-h-4 text-xs leading-4 text-muted">
+        {remaining > 0 ? `${remaining} still to go. You can submit once they are all filled in.` : null}
+      </p>
     </div>
   );
 }

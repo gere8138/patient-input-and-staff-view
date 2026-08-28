@@ -1,7 +1,6 @@
 'use client';
 
 import { useEffect, useMemo, useState } from 'react';
-import Link from 'next/link';
 import { useStaffSessions } from '@/hooks/useStaffSessions';
 import { STATUS_LABEL, type PresenceStatus } from '@/lib/presence';
 import { relativeTime } from '@/lib/presence';
@@ -136,12 +135,6 @@ export function StaffDashboard({ focusSessionId }: { focusSessionId?: string }) 
           )}
         </section>
       </div>
-
-      <footer className="border-t border-console-line px-4 py-3 text-center text-[11px] text-muted sm:px-6">
-        <Link href="/" className="underline underline-offset-4 hover:text-console-ink">
-          Back to start
-        </Link>
-      </footer>
     </main>
   );
 }
