@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { getSocket } from '@/lib/realtime/client';
 import type { PresenceStatus } from '@/lib/presence';
 import type { SessionPatch, SessionState } from '@/lib/realtime/events';
@@ -14,6 +14,8 @@ interface StaffSessions {
   byId: Record<string, SessionState>;
   connection: StaffConnection;
   lastUpdateAt: number | null;
+  /** Clears away an abandoned session. The server refuses anything not inactive. */
+  deleteSession: (sessionId: string) => void;
 }
 
 export function useStaffSessions(): StaffSessions {
@@ -50,6 +52,7 @@ export function useStaffSessions(): StaffSessions {
           completedFields: 0,
           requiredFields: REQUIRED_FIELDS.length,
           status: event.status,
+          connected: true,
           startedAt: event.lastActivityAt,
           lastActivityAt: event.lastActivityAt,
           submittedAt: event.submittedAt,
@@ -70,7 +73,17 @@ export function useStaffSessions(): StaffSessions {
       setLastUpdateAt(Date.now());
     };
 
-    const onStatus = ({ sessionId, status, lastActivityAt }: { sessionId: string; status: PresenceStatus; lastActivityAt: number }) => {
+    const onStatus = ({
+      sessionId,
+      status,
+      lastActivityAt,
+      connected,
+    }: {
+      sessionId: string;
+      status: PresenceStatus;
+      lastActivityAt: number;
+      connected: boolean;
+    }) => {
       setById((current) => {
         const existing = current[sessionId];
         if (!existing) return current;
@@ -80,6 +93,7 @@ export function useStaffSessions(): StaffSessions {
             ...existing,
             status,
             lastActivityAt,
+            connected,
             activeField: status === 'filling' ? existing.activeField : null,
           },
         };
@@ -119,6 +133,10 @@ export function useStaffSessions(): StaffSessions {
     };
   }, []);
 
+  const deleteSession = useCallback((sessionId: string) => {
+    getSocket().emit('staff:delete', { sessionId });
+  }, []);
+
   const sessions = Object.values(byId).sort(compareByStatus);
-  return { sessions, byId, connection, lastUpdateAt };
+  return { sessions, byId, connection, lastUpdateAt, deleteSession };
 }

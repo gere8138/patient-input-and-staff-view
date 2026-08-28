@@ -1,6 +1,7 @@
 'use client';
 
 import { useCallback, useEffect, useRef, useState } from 'react';
+import { useRouter } from 'next/navigation';
 import {
   useForm,
   useWatch,
@@ -27,6 +28,7 @@ import {
   type PatientField,
 } from '@/lib/schema';
 import { DEFAULT_PHONE_COUNTRY } from '@/lib/countries';
+import { newSessionId } from '@/lib/realtime/events';
 import { usePatientSession } from '@/hooks/usePatientSession';
 import { ConnectionBadge } from './ConnectionBadge';
 import { DateField } from './DateField';
@@ -40,6 +42,19 @@ import { TextAreaField } from './TextAreaField';
 import { TextField } from './TextField';
 
 const draftKey = (sessionId: string) => `agnos:draft:${sessionId}`;
+
+/**
+ * A reload means "start over", so the form moves to a fresh session id. The
+ * flag is module-scoped: the redirect is a client-side navigation, so the
+ * document's navigation type stays "reload" and would otherwise loop.
+ */
+let handledReload = false;
+
+function isReloadNavigation(): boolean {
+  if (typeof window === 'undefined' || handledReload) return false;
+  const [entry] = performance.getEntriesByType('navigation') as PerformanceNavigationTiming[];
+  return entry?.type === 'reload';
+}
 
 /**
  * Fields whose validity depends on another one. React Hook Form only surfaces
@@ -94,6 +109,9 @@ const patientResolver: Resolver<PatientData> = async (values, context, options) 
 };
 
 export function PatientForm({ sessionId }: { sessionId: string }) {
+  const router = useRouter();
+  // Decided on the first render so the socket never joins the stale session.
+  const [reloaded] = useState(isReloadNavigation);
   const [completed, setCompleted] = useState(0);
   const [reference, setReference] = useState<string | null>(null);
   const [formError, setFormError] = useState<string | null>(null);
@@ -117,10 +135,22 @@ export function PatientForm({ sessionId }: { sessionId: string }) {
     defaultValues: emptyPatientData,
   });
 
-  const { connection, pushField, setFocus, submit } = usePatientSession(sessionId, getValues);
-
-  // Restore any draft left by a refresh or a dropped connection.
   useEffect(() => {
+    if (!reloaded) return;
+    handledReload = true;
+    try {
+      window.localStorage.removeItem(draftKey(sessionId));
+    } catch {
+      // Nothing to clean up if storage is unavailable.
+    }
+    router.replace(`/form/${newSessionId()}`);
+  }, [reloaded, sessionId, router]);
+
+  const { connection, pushField, setFocus, submit } = usePatientSession(sessionId, getValues, !reloaded);
+
+  // Restore any draft saved for this session, e.g. after a dropped connection.
+  useEffect(() => {
+    if (reloaded) return;
     const draft = loadDraft(sessionId);
     reset(draft);
     setCompleted(countCompletedRequired(draft));
@@ -139,7 +169,7 @@ export function PatientForm({ sessionId }: { sessionId: string }) {
       setValue(key, draft[key] as never, { shouldTouch: true });
     }
     void trigger(filled);
-  }, [sessionId, reset, setValue, trigger]);
+  }, [reloaded, sessionId, reset, setValue, trigger]);
 
   const [gender, dateOfBirth, phoneCountry, emergencyPhoneCountry] = useWatch({
     control,

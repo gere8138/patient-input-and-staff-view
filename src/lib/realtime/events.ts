@@ -13,6 +13,8 @@ export interface SessionState {
   completedFields: number;
   requiredFields: number;
   status: PresenceStatus;
+  /** Whether a patient tab still has this form open. */
+  connected: boolean;
   startedAt: number;
   lastActivityAt: number;
   submittedAt: number | null;
@@ -39,7 +41,12 @@ export interface ServerToClientEvents {
   'session:list': (sessions: SessionState[]) => void;
   'session:state': (session: SessionState) => void;
   'session:patch': (patch: SessionPatch) => void;
-  'session:status': (payload: { sessionId: string; status: PresenceStatus; lastActivityAt: number }) => void;
+  'session:status': (payload: {
+    sessionId: string;
+    status: PresenceStatus;
+    lastActivityAt: number;
+    connected: boolean;
+  }) => void;
   'session:removed': (payload: { sessionId: string }) => void;
 }
 
@@ -55,7 +62,8 @@ export interface ClientToServerEvents {
   }) => void;
   'form:focus': (payload: { sessionId: string; field: PatientField | null }) => void;
   'form:submit': (payload: { sessionId: string; data: unknown }, ack?: (result: SubmitResult) => void) => void;
-  'presence:ping': (payload: { sessionId: string }) => void;
+  /** Staff clearing away an abandoned session. Only inactive ones are removed. */
+  'staff:delete': (payload: { sessionId: string }, ack?: (result: { ok: boolean }) => void) => void;
 }
 
 export function newSessionId(): string {

@@ -56,34 +56,64 @@ export function formatPhone(value: string, country: string = DEFAULT_PHONE_COUNT
 
 export const GENDER_VALUES = ['female', 'male', 'prefer_not_to_say'] as const;
 
+/*
+ * One voice for every message the patient can see. These helpers also carry the
+ * message into `required_error`, so a payload that omits a key entirely gets
+ * the same sentence as one that sends it empty — Zod's bare "Required" never
+ * reaches the form.
+ */
+const lengthLimit = (max: number) => `Please use ${max} characters or fewer`;
+
+function requiredText(message: string, max: number) {
+  return z
+    .string({ required_error: message, invalid_type_error: message })
+    .trim()
+    .min(1, message)
+    .max(max, lengthLimit(max));
+}
+
+function optionalText(max: number) {
+  return z
+    .string({ invalid_type_error: lengthLimit(max) })
+    .trim()
+    .max(max, lengthLimit(max))
+    .optional()
+    .or(z.literal(''));
+}
+
+function requiredChoice(message: string) {
+  return z.string({ required_error: message, invalid_type_error: message }).min(1, message);
+}
+
+function countryChoice() {
+  const message = 'Please choose a country';
+  return z
+    .string({ required_error: message, invalid_type_error: message })
+    .refine((iso) => Boolean(COUNTRY_BY_ISO[iso]), message);
+}
+
 const patientObject = z.object({
-    firstName: z.string().trim().min(1, "Please enter your first name").max(60),
-    middleName: z.string().trim().max(60).optional().or(z.literal('')),
-    lastName: z.string().trim().min(1, "Please enter your last name").max(60),
-    dateOfBirth: z
-      .string()
-      .min(1, 'Enter a date of birth')
-      .refine(isRealPastDate, 'Please enter a valid date'),
-    gender: z.enum(GENDER_VALUES, { errorMap: () => ({ message: 'Choose an option' }) }),
-    phoneCountry: z
-      .string()
-      .refine((iso) => Boolean(COUNTRY_BY_ISO[iso]), 'Choose a country'),
-    phone: z.string().trim().min(1, 'Enter a phone number'),
-    email: z
-      .string()
-      .trim()
-      .min(1, 'Enter an email address')
-      .email('Please enter a valid email address like name@example.com'),
-    address: z.string().trim().min(5, 'Please enter a valid address').max(300),
-    preferredLanguage: z.string().min(1, 'Choose a preferred language'),
-    nationality: z.string().min(1, 'Choose a nationality'),
-    emergencyContactPhoneCountry: z
-      .string()
-      .refine((iso) => Boolean(COUNTRY_BY_ISO[iso]), 'Choose a country'),
-    emergencyContactPhone: z.string().trim().min(1, 'Enter an emergency contact number'),
-    emergencyContactName: z.string().trim().max(80).optional().or(z.literal('')),
-    emergencyContactRelationship: z.string().trim().max(40).optional().or(z.literal('')),
-    religion: z.string().trim().max(60).optional().or(z.literal('')),
+  firstName: requiredText('Please enter your first name', 60),
+  middleName: optionalText(60),
+  lastName: requiredText('Please enter your last name', 60),
+  dateOfBirth: requiredChoice('Please enter your date of birth').refine(
+    isRealPastDate,
+    'Please enter a valid date of birth',
+  ),
+  gender: z.enum(GENDER_VALUES, { errorMap: () => ({ message: 'Please choose an option' }) }),
+  phoneCountry: countryChoice(),
+  phone: requiredChoice('Please enter your phone number'),
+  email: requiredText('Please enter your email address', 200).email(
+    'Please enter a valid email address like name@example.com',
+  ),
+  address: requiredText('Please enter your address', 300).min(5, 'Please enter a valid address'),
+  preferredLanguage: requiredChoice('Please choose a preferred language'),
+  nationality: requiredChoice('Please choose a nationality'),
+  emergencyContactPhoneCountry: countryChoice(),
+  emergencyContactPhone: requiredChoice('Please enter an emergency contact number'),
+  emergencyContactName: optionalText(80),
+  emergencyContactRelationship: optionalText(40),
+  religion: optionalText(60),
 });
 
 export const patientSchema = patientObject.superRefine((data, ctx) => {

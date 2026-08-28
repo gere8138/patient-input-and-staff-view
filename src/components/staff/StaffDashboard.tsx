@@ -11,7 +11,7 @@ import { SessionList } from './SessionList';
 const COUNTED: PresenceStatus[] = ['filling', 'idle', 'submitted', 'inactive'];
 
 export function StaffDashboard({ focusSessionId }: { focusSessionId?: string }) {
-  const { sessions, byId, connection, lastUpdateAt } = useStaffSessions();
+  const { sessions, byId, connection, lastUpdateAt, deleteSession } = useStaffSessions();
   const [selectedId, setSelectedId] = useState<string | null>(focusSessionId ?? null);
   const [isWide, setIsWide] = useState(false);
 
@@ -101,7 +101,12 @@ export function StaffDashboard({ focusSessionId }: { focusSessionId?: string }) 
           {sessions.length === 0 ? (
             <EmptyState />
           ) : (
-            <SessionList sessions={sessions} selectedId={selectedId} onSelect={setSelectedId} />
+            <SessionList
+              sessions={sessions}
+              selectedId={selectedId}
+              onSelect={setSelectedId}
+              onDelete={deleteSession}
+            />
           )}
         </section>
 
@@ -115,7 +120,7 @@ export function StaffDashboard({ focusSessionId }: { focusSessionId?: string }) 
               >
                 ← All patients
               </button>
-              <SessionDetail session={selected} />
+              <SessionDetail session={selected} onDelete={deleteSession} />
             </>
           ) : missing ? (
             <div className="px-6 py-10 text-center">

@@ -55,7 +55,8 @@ Patient (phone)                                  Staff (desktop)
       │  form:update (coalesced, 250ms)                ▲
       │  form:focus  (immediate)                       │ session:patch
       │  form:submit                                   │ session:status
-      │  presence:ping (5s while visible)              │ session:list
+      │  connect / disconnect                          │ session:list
+      │                                        staff:delete │
       ▼                                                │
 ┌──────────────────────────────────────────────────────┴────┐
 │         One Node process — Next.js handler + Socket.IO     │
@@ -88,21 +89,37 @@ Derived on the server by one pure function (`src/lib/presence.ts`), unit-tested,
 the detail pane can never disagree.
 
 ```
-                any form:update / presence:ping
+                    any typing or field change
        ┌────────────────────────────────────────┐
        ▼                                        │
-  ┌─────────┐  silent 15s  ┌────────┐  silent 90s  ┌──────────┐
-  │ filling │ ───────────► │ paused │ ───────────► │ inactive │
-  └────┬────┘              └────────┘              └──────────┘
-       │ form:submit
-       ▼
-  ┌───────────┐
-  │ submitted │  terminal — never downgrades
-  └───────────┘
+  ┌─────────┐   no input for 15s   ┌────────┐   │
+  │ filling │ ───────────────────► │ paused │ ──┘
+  └────┬────┘                      └───┬────┘
+       │ form:submit                   │
+       │                    tab closed │ tab closed
+       ▼                               ▼
+  ┌───────────┐                  ┌──────────┐
+  │ submitted │                  │ inactive │ ── staff can delete
+  └───────────┘                  └──────────┘
+     terminal
 ```
 
-A visible patient tab pings every 5 seconds, so "paused" and "inactive" mean the tab was closed,
-backgrounded, or lost its connection — which is exactly the case staff need to spot.
+The three live states answer three different questions:
+
+| State | Meaning |
+| --- | --- |
+| **Actively filling** | Typing right now — something changed in the last 15 seconds. |
+| **Paused** | The form is still open on their device, but nothing has been entered for 15 seconds. |
+| **Inactive** | The tab is gone and the form was never submitted. |
+
+Paused is measured from real input only — typing, changing a field, moving between fields. There is
+no heartbeat inflating it, so a form sitting open and untouched reads as paused, not as filling.
+Inactive comes from the socket disconnecting, so it means exactly "they closed it", not "they went
+quiet". Submitted is terminal and survives the tab closing.
+
+Staff can delete an **inactive** session from either the list or the detail pane, behind a
+two-step confirm. The server refuses to delete anything else — a live, paused or submitted session
+is never removable, whatever the client asks for.
 
 ## Project structure
 
@@ -163,6 +180,14 @@ Nationality covers all 245 countries and territories, labelled by demonym where 
 use ("Thai", "British", "Ivorian") and by country name where one is not ("Gibraltar", "Guadeloupe").
 Both lists come from the same generated file, so a country can never appear in one and not the other.
 
+## Sessions and refreshing
+
+Reloading the patient form starts a **new** session: the page redirects to a fresh session id, the
+abandoned draft is cleared, and the old session appears on the staff console as inactive, ready to
+be deleted. Returning to a session URL without reloading still restores its draft, and any restored
+value that is invalid shows its error straight away — a field left empty stays quiet until it is
+edited.
+
 ## Design notes
 
 **Paper for the patient, console for staff.** A patient fills this in once, nervously, on a phone;
@@ -180,8 +205,8 @@ visible throughout; `prefers-reduced-motion` disables the caret pulse and the ro
 
 ## Bonus features implemented
 
-- **Draft persistence** — form state is mirrored to `localStorage`, so a refresh or a dropped
-  connection does not lose the patient's work.
+- **Draft persistence** — form state is mirrored to `localStorage`, so a dropped connection does
+  not lose the patient's work. (A deliberate refresh starts a fresh session instead — see below.)
 - **Reconnection repair** — on reconnect the client re-joins and re-sends its full current state,
   so the server's copy is repaired rather than left stale.
 - **Copyable intake link** — the console's empty state generates a fresh session link for handing

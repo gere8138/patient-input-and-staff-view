@@ -154,6 +154,42 @@ describe('phone validation through the schema', () => {
   });
 });
 
+describe('message wording', () => {
+  /** One voice across the form: every message is a "Please …" instruction. */
+  function allMessages(): string[] {
+    const empty = patientSchema.safeParse({});
+    const wrong = patientSchema.safeParse({
+      ...valid,
+      email: 'nope',
+      dateOfBirth: '2999-01-01',
+      address: 'x',
+      phone: '123',
+      emergencyContactPhone: '123',
+      gender: 'unknown',
+      phoneCountry: 'ZZ',
+      emergencyContactPhoneCountry: 'ZZ',
+    });
+    return [
+      ...Object.values(empty.success ? {} : fieldErrors(empty.error)),
+      ...Object.values(wrong.success ? {} : fieldErrors(wrong.error)),
+    ];
+  }
+
+  it('phrases every validation message the same way', () => {
+    const messages = allMessages();
+    expect(messages.length).toBeGreaterThan(8);
+    for (const message of messages) {
+      expect(message).toMatch(/^Please /);
+    }
+  });
+
+  it('never leaks a raw Zod default message', () => {
+    for (const message of allMessages()) {
+      expect(message).not.toMatch(/String must contain|Invalid|Required/);
+    }
+  });
+});
+
 describe('digitsOnly', () => {
   it('keeps digits and drops everything else', () => {
     expect(digitsOnly('081 234 5678')).toBe('0812345678');

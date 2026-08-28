@@ -6,7 +6,6 @@ import type { SubmitResult } from '@/lib/realtime/events';
 import type { PatientData, PatientField } from '@/lib/schema';
 
 const FLUSH_INTERVAL_MS = 250;
-const PING_INTERVAL_MS = 5000;
 
 export type ConnectionState = 'connecting' | 'live' | 'reconnecting';
 
@@ -22,6 +21,8 @@ interface PatientSession {
 export function usePatientSession(
   sessionId: string,
   getValues: () => Partial<PatientData>,
+  /** False while the page is bouncing to a fresh session, so the stale one is left alone. */
+  enabled = true,
 ): PatientSession {
   const [connection, setConnection] = useState<ConnectionState>('connecting');
   const pending = useRef<Partial<PatientData>>({});
@@ -65,7 +66,10 @@ export function usePatientSession(
           flush();
         }
         const timeout = setTimeout(
-          () => resolve({ ok: false, errors: { _form: 'The server did not respond. Check your connection.' } }),
+          () => resolve({
+              ok: false,
+              errors: { _form: 'Please check your connection and try again.' },
+            }),
           8000,
         );
         getSocket().emit('form:submit', { sessionId, data }, (result) => {
@@ -77,6 +81,7 @@ export function usePatientSession(
   );
 
   useEffect(() => {
+    if (!enabled) return;
     const socket = getSocket();
 
     const join = () => {
@@ -99,19 +104,12 @@ export function usePatientSession(
     if (socket.connected) onConnect();
     else socket.connect();
 
-    const ping = setInterval(() => {
-      if (document.visibilityState === 'visible' && socket.connected) {
-        socket.emit('presence:ping', { sessionId });
-      }
-    }, PING_INTERVAL_MS);
-
     return () => {
       socket.off('connect', onConnect);
       socket.off('disconnect', onDisconnect);
-      clearInterval(ping);
       if (flushTimer.current !== null) clearTimeout(flushTimer.current);
     };
-  }, [sessionId]);
+  }, [sessionId, enabled]);
 
   return { connection, pushField, setFocus, submit };
 }

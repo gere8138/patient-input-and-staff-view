@@ -52,10 +52,23 @@ export function attachRealtime(io: IO, store: SessionStore = createMemoryStore()
     io.to(sessionRoom(session.sessionId)).emit('session:patch', event);
   };
 
+  const broadcastStatus = (session: SessionState) => {
+    const payload = {
+      sessionId: session.sessionId,
+      status: session.status,
+      lastActivityAt: session.lastActivityAt,
+      connected: session.connected,
+    };
+    io.to(STAFF_LOBBY).emit('session:status', payload);
+    io.to(sessionRoom(session.sessionId)).emit('session:status', payload);
+  };
+
   io.on('connection', (socket: IOSocket) => {
     socket.on('session:join', ({ sessionId }, ack) => {
       if (!isValidSessionId(sessionId)) return;
-      const session = store.ensure(sessionId);
+      // Only the patient's own tab counts as holding the form open; staff
+      // watching a session must never keep it out of "inactive".
+      const session = store.attachSocket(sessionId, socket.id);
       socket.join(sessionRoom(sessionId));
       ack?.(session);
       io.to(STAFF_LOBBY).emit('session:patch', toPatchEvent(session, session.data));
@@ -86,27 +99,28 @@ export function attachRealtime(io: IO, store: SessionStore = createMemoryStore()
       broadcastPatch(session, {});
     });
 
-    socket.on('presence:ping', ({ sessionId }) => {
-      if (!isValidSessionId(sessionId)) return;
-      const before = store.get(sessionId)?.status;
-      const session = store.touch(sessionId);
-      if (session.status !== before) {
-        io.to(STAFF_LOBBY).emit('session:status', {
-          sessionId,
-          status: session.status,
-          lastActivityAt: session.lastActivityAt,
-        });
-        io.to(sessionRoom(sessionId)).emit('session:status', {
-          sessionId,
-          status: session.status,
-          lastActivityAt: session.lastActivityAt,
-        });
+    socket.on('staff:delete', ({ sessionId }, ack) => {
+      if (!isValidSessionId(sessionId)) {
+        ack?.({ ok: false });
+        return;
+      }
+      const removed = store.remove(sessionId);
+      ack?.({ ok: removed });
+      if (removed) {
+        io.to(STAFF_LOBBY).emit('session:removed', { sessionId });
+        io.to(sessionRoom(sessionId)).emit('session:removed', { sessionId });
+      }
+    });
+
+    socket.on('disconnect', () => {
+      for (const session of store.detachSocket(socket.id)) {
+        broadcastStatus(session);
       }
     });
 
     socket.on('form:submit', ({ sessionId, data }, ack) => {
       if (!isValidSessionId(sessionId)) {
-        ack?.({ ok: false, errors: { _form: 'Unknown session' } });
+        ack?.({ ok: false, errors: { _form: 'This session has ended. Please start a new form.' } });
         return;
       }
       // The client already validated; the server does it again with the same
@@ -124,13 +138,7 @@ export function attachRealtime(io: IO, store: SessionStore = createMemoryStore()
 
   const sweep = setInterval(() => {
     for (const session of store.refreshStatuses()) {
-      const payload = {
-        sessionId: session.sessionId,
-        status: session.status,
-        lastActivityAt: session.lastActivityAt,
-      };
-      io.to(STAFF_LOBBY).emit('session:status', payload);
-      io.to(sessionRoom(session.sessionId)).emit('session:status', payload);
+      broadcastStatus(session);
     }
     for (const sessionId of store.sweepExpired()) {
       io.to(STAFF_LOBBY).emit('session:removed', { sessionId });

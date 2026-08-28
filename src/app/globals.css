@@ -21,6 +21,8 @@
   --color-ok: #3e9c6b;
   --color-muted: #8a9199;
   --color-alert: #c2453b;
+  /* Pressed/hover state for destructive actions. */
+  --color-alert-strong: #9a3229;
 
   --font-sans: var(--font-plex-sans), ui-sans-serif, system-ui, -apple-system, 'Segoe UI', sans-serif;
   --font-mono: var(--font-plex-mono), ui-monospace, 'SF Mono', 'Cascadia Mono', monospace;

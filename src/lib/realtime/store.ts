@@ -17,8 +17,13 @@ export interface SessionStore {
     activeField: PatientField | null,
   ): SessionState;
   setActiveField(sessionId: string, field: PatientField | null): SessionState;
-  touch(sessionId: string): SessionState;
   markSubmitted(sessionId: string, data: PatientData): SessionState;
+  /** Records that a patient tab has the form open. */
+  attachSocket(sessionId: string, socketId: string): SessionState;
+  /** Drops a closed tab; returns the sessions whose connection state changed. */
+  detachSocket(socketId: string): SessionState[];
+  /** Staff removing an abandoned session. Returns false if it was not allowed. */
+  remove(sessionId: string): boolean;
   /** Re-derives status for every session; returns the ones that changed. */
   refreshStatuses(now?: number): SessionState[];
   /** Drops sessions past their TTL; returns the removed ids. */
@@ -32,7 +37,8 @@ function blankSession(sessionId: string, now: number): SessionState {
     activeField: null,
     completedFields: 0,
     requiredFields: REQUIRED_FIELDS.length,
-    status: 'filling',
+    status: 'inactive',
+    connected: false,
     startedAt: now,
     lastActivityAt: now,
     submittedAt: null,
@@ -41,6 +47,8 @@ function blankSession(sessionId: string, now: number): SessionState {
 
 export function createMemoryStore(): SessionStore {
   const sessions = new Map<string, SessionState>();
+  /** Which patient tabs currently hold each session open. */
+  const openTabs = new Map<string, Set<string>>();
 
   function ensure(sessionId: string): SessionState {
     const existing = sessions.get(sessionId);
@@ -50,12 +58,11 @@ export function createMemoryStore(): SessionStore {
     return created;
   }
 
-  function touch(sessionId: string): SessionState {
-    const session = ensure(sessionId);
-    if (session.submittedAt === null) {
-      session.lastActivityAt = Date.now();
-      session.status = deriveStatus(session);
-    }
+  /** Any real input: typing, changing a field, moving the caret. */
+  function registerActivity(session: SessionState): SessionState {
+    if (session.submittedAt !== null) return session;
+    session.lastActivityAt = Date.now();
+    session.status = deriveStatus(session);
     return session;
   }
 
@@ -63,7 +70,37 @@ export function createMemoryStore(): SessionStore {
     get: (sessionId) => sessions.get(sessionId),
     all: () => [...sessions.values()],
     ensure,
-    touch,
+
+    attachSocket(sessionId, socketId) {
+      const session = ensure(sessionId);
+      const tabs = openTabs.get(sessionId) ?? new Set<string>();
+      tabs.add(socketId);
+      openTabs.set(sessionId, tabs);
+      session.connected = true;
+      session.status = deriveStatus(session);
+      return session;
+    },
+
+    detachSocket(socketId) {
+      const changed: SessionState[] = [];
+      for (const [sessionId, tabs] of openTabs) {
+        if (!tabs.delete(socketId)) continue;
+        if (tabs.size === 0) openTabs.delete(sessionId);
+        const session = sessions.get(sessionId);
+        if (!session) continue;
+        // Another tab of the same session may still be open.
+        const connected = tabs.size > 0;
+        if (connected === session.connected) continue;
+        session.connected = connected;
+        const next = deriveStatus(session);
+        if (next !== session.status) {
+          session.status = next;
+          if (next === 'inactive') session.activeField = null;
+        }
+        changed.push(session);
+      }
+      return changed;
+    },
 
     applyPatch(sessionId, patch, activeField) {
       const session = ensure(sessionId);
@@ -72,18 +109,14 @@ export function createMemoryStore(): SessionStore {
       session.data = { ...session.data, ...patch };
       session.activeField = activeField;
       session.completedFields = countCompletedRequired(session.data);
-      session.lastActivityAt = Date.now();
-      session.status = deriveStatus(session);
-      return session;
+      return registerActivity(session);
     },
 
     setActiveField(sessionId, field) {
       const session = ensure(sessionId);
       if (session.submittedAt !== null) return session;
       session.activeField = field;
-      session.lastActivityAt = Date.now();
-      session.status = deriveStatus(session);
-      return session;
+      return registerActivity(session);
     },
 
     markSubmitted(sessionId, data) {
@@ -97,13 +130,22 @@ export function createMemoryStore(): SessionStore {
       return session;
     },
 
+    remove(sessionId) {
+      // Staff can only clear away abandoned forms, never a live or completed one.
+      const session = sessions.get(sessionId);
+      if (!session || session.status !== 'inactive') return false;
+      sessions.delete(sessionId);
+      openTabs.delete(sessionId);
+      return true;
+    },
+
     refreshStatuses(now = Date.now()) {
       const changed: SessionState[] = [];
       for (const session of sessions.values()) {
         const next = deriveStatus(session, now);
         if (next !== session.status) {
           session.status = next;
-          if (next === 'inactive' || next === 'idle') session.activeField = null;
+          if (next !== 'filling') session.activeField = null;
           changed.push(session);
         }
       }
@@ -115,6 +157,7 @@ export function createMemoryStore(): SessionStore {
       for (const [sessionId, session] of sessions) {
         if (now - session.lastActivityAt > SESSION_TTL_MS) {
           sessions.delete(sessionId);
+          openTabs.delete(sessionId);
           removed.push(sessionId);
         }
       }

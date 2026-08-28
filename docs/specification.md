@@ -42,7 +42,7 @@ Every line of the assignment mapped to where it is satisfied. This table is the 
 | R14 | Responsive patient form | Mobile-first, single column → two column at `md` | ☑ |
 | R15 | Staff view shows every field in real time | `SessionDetail` | ☑ |
 | R16 | Responsive staff view | List-only on mobile, list + detail split at `lg` | ☑ |
-| R17 | Indicators: submitted / actively filling / inactive | `StatusPill` + presence state machine (§8) | ☑ |
+| R17 | Indicators: submitted / actively filling / paused / inactive | `StatusPill` + presence state machine (§8) | ☑ |
 | R18 | WebSockets or suitable real-time tech | Socket.IO over WS (§5) | ☑ |
 | R19 | Next.js | App Router, TypeScript | ☑ |
 | R20 | TailwindCSS | v4, tokens in `globals.css` | ☑ |
@@ -123,7 +123,7 @@ agnos-realtime-intake/
 └─────────┬──────────┘                      └──────────▲─────────┘
           │ form:update  (debounced 250ms)             │
           │ form:submit                                │ session:patch
-          │ presence:ping (every 5s)                   │ session:list
+          │ connect / disconnect                       │ session:list
           ▼                                            │
    ┌──────────────────────────────────────────────────┴──────┐
    │        Node process — Next.js handler + Socket.IO        │
@@ -235,7 +235,7 @@ Errors surface on blur, then live-update once the field has been touched. Never 
 | `form:update` | `{ sessionId, patch: Partial<PatientData>, activeField }` | Debounced 250 ms per field. Sends only changed keys, not the whole form. |
 | `form:focus` | `{ sessionId, field \| null }` | Immediate, not debounced — drives the caret marker. |
 | `form:submit` | `{ sessionId, data }` | Server re-validates with the same Zod schema before accepting. |
-| `presence:ping` | `{ sessionId }` | Every 5 s while the tab is visible. |
+| _(socket disconnect)_ | — | Socket.IO's own lifecycle; closing the tab is what makes a session inactive. |
 
 **Server → staff**
 
@@ -243,7 +243,8 @@ Errors surface on blur, then live-update once the field has been touched. Never 
 |---|---|---|
 | `session:list` | `SessionState[]` | Sent once on staff connect. |
 | `session:patch` | `{ sessionId, patch, activeField, status, lastActivityAt }` | Broadcast to `staff:lobby` on every change. |
-| `session:status` | `{ sessionId, status }` | Emitted by the inactivity sweep when nothing else changed. |
+| `session:status` | `{ sessionId, status, lastActivityAt, connected }` | Emitted by the pause sweep and on disconnect. |
+| `staff:delete` | `{ sessionId }` → `{ ok }` | Staff clearing an abandoned session. Server refuses anything not inactive. |
 | `session:removed` | `{ sessionId }` | After TTL expiry. |
 
 ### Status state machine
@@ -251,18 +252,23 @@ Errors surface on blur, then live-update once the field has been touched. Never 
 Derived on the server, in one pure function (`lib/presence.ts`) so it is testable and cannot diverge between views.
 
 ```
-                 any form:update / presence:ping
+                     any typing or field change
         ┌──────────────────────────────────────────┐
         ▼                                          │
-   ┌─────────┐  no activity 15s   ┌──────┐  no activity 90s   ┌──────────┐
-   │ filling │ ─────────────────► │ idle │ ─────────────────► │ inactive │
-   └────┬────┘                    └──────┘                    └──────────┘
-        │ form:submit
-        ▼
-   ┌───────────┐
-   │ submitted │   terminal — never downgrades
-   └───────────┘
+   ┌─────────┐   no input for 15s    ┌────────┐    │
+   │ filling │ ────────────────────► │ paused │ ───┘
+   └────┬────┘                       └───┬────┘
+        │ form:submit          tab closed│  tab closed
+        ▼                                ▼
+   ┌───────────┐                   ┌──────────┐
+   │ submitted │                   │ inactive │  staff may delete
+   └───────────┘                   └──────────┘
+      terminal
 ```
+
+**Paused** counts only real input, with no heartbeat propping it up, so an open but untouched form
+reads as paused. **Inactive** is driven by the socket disconnecting, so it means the tab is gone
+rather than merely quiet. Only inactive sessions can be deleted by staff.
 
 A 5-second server interval re-derives status for all sessions and emits `session:status` only for those that changed. Emitting only on change keeps an idle dashboard quiet.
 

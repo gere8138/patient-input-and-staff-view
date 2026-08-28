@@ -5,10 +5,17 @@ import { formatPhone } from '@/lib/schema';
 import { DEFAULT_PHONE_COUNTRY } from '@/lib/countries';
 import { relativeTime, STATUS_LABEL } from '@/lib/presence';
 import { sessionDisplayName, type SessionState } from '@/lib/realtime/events';
+import { DeleteSessionButton } from './DeleteSessionButton';
 import { FieldRow } from './FieldRow';
 import { StatusPill } from './StatusPill';
 
-export function SessionDetail({ session }: { session: SessionState }) {
+export function SessionDetail({
+  session,
+  onDelete,
+}: {
+  session: SessionState;
+  onDelete: (sessionId: string) => void;
+}) {
   const pct = Math.round((session.completedFields / session.requiredFields) * 100);
 
   return (
@@ -21,7 +28,15 @@ export function SessionDetail({ session }: { session: SessionState }) {
               {session.sessionId} · started {relativeTime(session.startedAt)}
             </p>
           </div>
-          <StatusPill status={session.status} />
+          <div className="flex items-center gap-2">
+            <StatusPill status={session.status} />
+            {session.status === 'inactive' && (
+              <DeleteSessionButton
+                sessionName={sessionDisplayName(session)}
+                onConfirm={() => onDelete(session.sessionId)}
+              />
+            )}
+          </div>
         </div>
 
         <div className="mt-4 flex items-center gap-3">

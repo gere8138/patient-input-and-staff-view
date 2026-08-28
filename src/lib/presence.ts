@@ -1,29 +1,33 @@
 export type PresenceStatus = 'filling' | 'idle' | 'inactive' | 'submitted';
 
-/** No activity for this long and the patient is treated as paused, not typing. */
+/** No typing, focus or field change for this long and the patient has paused. */
 export const IDLE_AFTER_MS = 15_000;
-/** No activity for this long and the patient has probably walked away. */
-export const INACTIVE_AFTER_MS = 90_000;
 /** Sessions are swept from the store this long after their last activity. */
 export const SESSION_TTL_MS = 30 * 60_000;
 /** How often the server re-derives status for every live session. */
 export const SWEEP_INTERVAL_MS = 5_000;
 
 export interface PresenceInput {
+  /** Last real input — typing or moving between fields. Heartbeats do not count. */
   lastActivityAt: number;
   submittedAt: number | null;
+  /** Whether the patient still has the form open. */
+  connected: boolean;
 }
 
 /**
  * Pure status derivation. Both the sweep and every inbound event go through
  * this, so the list view and the detail view can never disagree.
+ *
+ * The three live states answer three different questions:
+ *   filling  — typing right now
+ *   paused   — form still open, but nothing entered for 15 seconds
+ *   inactive — the tab is gone and the form was never submitted
  */
 export function deriveStatus(input: PresenceInput, now: number = Date.now()): PresenceStatus {
   if (input.submittedAt !== null) return 'submitted';
-  const silentFor = now - input.lastActivityAt;
-  if (silentFor >= INACTIVE_AFTER_MS) return 'inactive';
-  if (silentFor >= IDLE_AFTER_MS) return 'idle';
-  return 'filling';
+  if (!input.connected) return 'inactive';
+  return now - input.lastActivityAt >= IDLE_AFTER_MS ? 'idle' : 'filling';
 }
 
 export const STATUS_LABEL: Record<PresenceStatus, string> = {

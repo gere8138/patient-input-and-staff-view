@@ -1,33 +1,35 @@
 import { describe, expect, it } from 'vitest';
-import {
-  compareByStatus,
-  deriveStatus,
-  IDLE_AFTER_MS,
-  INACTIVE_AFTER_MS,
-  relativeTime,
-} from '@/lib/presence';
+import { compareByStatus, deriveStatus, IDLE_AFTER_MS, relativeTime } from '@/lib/presence';
 
 const NOW = 1_700_000_000_000;
 
+const open = (lastActivityAt: number) => ({ lastActivityAt, submittedAt: null, connected: true });
+const closed = (lastActivityAt: number) => ({ lastActivityAt, submittedAt: null, connected: false });
+
 describe('deriveStatus', () => {
-  it('is filling while activity is recent', () => {
-    expect(deriveStatus({ lastActivityAt: NOW - 1_000, submittedAt: null }, NOW)).toBe('filling');
+  it('is filling while the patient is still entering things', () => {
+    expect(deriveStatus(open(NOW - 1_000), NOW)).toBe('filling');
   });
 
-  it('crosses to idle exactly at the threshold', () => {
-    expect(deriveStatus({ lastActivityAt: NOW - IDLE_AFTER_MS + 1, submittedAt: null }, NOW)).toBe('filling');
-    expect(deriveStatus({ lastActivityAt: NOW - IDLE_AFTER_MS, submittedAt: null }, NOW)).toBe('idle');
+  it('pauses after exactly 15 seconds without input', () => {
+    expect(deriveStatus(open(NOW - IDLE_AFTER_MS + 1), NOW)).toBe('filling');
+    expect(deriveStatus(open(NOW - IDLE_AFTER_MS), NOW)).toBe('idle');
   });
 
-  it('crosses to inactive exactly at the threshold', () => {
-    expect(deriveStatus({ lastActivityAt: NOW - INACTIVE_AFTER_MS + 1, submittedAt: null }, NOW)).toBe('idle');
-    expect(deriveStatus({ lastActivityAt: NOW - INACTIVE_AFTER_MS, submittedAt: null }, NOW)).toBe('inactive');
+  it('stays paused, not inactive, however long the form sits open', () => {
+    expect(deriveStatus(open(NOW - 60 * 60_000), NOW)).toBe('idle');
   });
 
-  it('treats submitted as terminal no matter how stale the session is', () => {
-    expect(deriveStatus({ lastActivityAt: NOW - 10 * INACTIVE_AFTER_MS, submittedAt: NOW - 1 }, NOW)).toBe(
-      'submitted',
-    );
+  it('is inactive once the tab is gone and nothing was submitted', () => {
+    expect(deriveStatus(closed(NOW - 1_000), NOW)).toBe('inactive');
+    expect(deriveStatus(closed(NOW), NOW)).toBe('inactive');
+  });
+
+  it('treats submitted as terminal, open tab or not', () => {
+    expect(deriveStatus({ lastActivityAt: NOW, submittedAt: NOW, connected: true }, NOW)).toBe('submitted');
+    expect(
+      deriveStatus({ lastActivityAt: NOW - 10 * 60_000, submittedAt: NOW - 1, connected: false }, NOW),
+    ).toBe('submitted');
   });
 });
 
