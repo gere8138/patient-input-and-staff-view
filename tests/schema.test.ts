@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import {
+  digitsOnly,
   fieldErrors,
   formatPhone,
   GENDER_VALUES,
@@ -153,6 +154,20 @@ describe('phone validation through the schema', () => {
   });
 });
 
+describe('digitsOnly', () => {
+  it('keeps digits and drops everything else', () => {
+    expect(digitsOnly('081 234 5678')).toBe('0812345678');
+    expect(digitsOnly('+66 (81) 234-5678')).toBe('66812345678');
+    expect(digitsOnly('abc081def234')).toBe('081234');
+    expect(digitsOnly('!@#$%')).toBe('');
+    expect(digitsOnly('')).toBe('');
+  });
+
+  it('leaves an already-clean number untouched', () => {
+    expect(digitsOnly('0812345678')).toBe('0812345678');
+  });
+});
+
 describe('formatPhone', () => {
   it('renders an international form for the staff console', () => {
     expect(formatPhone('0812345678', 'TH')).toBe('+66 81 234 5678');
@@ -222,5 +237,24 @@ describe('countCompletedRequired', () => {
     expect(countCompletedRequired({ firstName: 'A', middleName: 'B' })).toBe(1);
     expect(countCompletedRequired({ firstName: '   ' })).toBe(0);
     expect(countCompletedRequired(valid)).toBe(REQUIRED_FIELDS.length);
+  });
+
+  it('does not credit a filled-in field that is invalid', () => {
+    expect(countCompletedRequired({ email: 'not-an-email' })).toBe(0);
+    expect(countCompletedRequired({ email: 'a@b.co' })).toBe(1);
+    expect(countCompletedRequired({ dateOfBirth: '2999-01-01' })).toBe(0);
+    expect(countCompletedRequired({ address: 'x' })).toBe(0);
+  });
+
+  it('judges a phone number against its chosen country', () => {
+    expect(countCompletedRequired({ phoneCountry: 'TH', phone: '0812345678' })).toBe(1);
+    expect(countCompletedRequired({ phoneCountry: 'US', phone: '0812345678' })).toBe(0);
+    expect(countCompletedRequired({ phoneCountry: 'TH', phone: '123' })).toBe(0);
+  });
+
+  it('never reaches full while any required field is still invalid', () => {
+    const broken = { ...valid, email: 'nope' };
+    expect(countCompletedRequired(broken)).toBe(REQUIRED_FIELDS.length - 1);
+    expect(patientSchema.safeParse(broken).success).toBe(false);
   });
 });

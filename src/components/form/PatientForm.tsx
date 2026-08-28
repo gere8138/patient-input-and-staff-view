@@ -11,6 +11,7 @@ import {
 import { zodResolver } from '@hookform/resolvers/zod';
 import {
   countCompletedRequired,
+  FIELD_BY_KEY,
   fieldsInSection,
   PHONE_COUNTRY_FOR,
   REQUIRED_FIELDS,
@@ -19,6 +20,7 @@ import {
 } from '@/lib/fields';
 import {
   crossFieldIssues,
+  digitsOnly,
   emptyPatientData,
   patientSchema,
   type PatientData,
@@ -102,6 +104,7 @@ export function PatientForm({ sessionId }: { sessionId: string }) {
     control,
     handleSubmit,
     getValues,
+    getFieldState,
     reset,
     setValue,
     setError,
@@ -121,7 +124,22 @@ export function PatientForm({ sessionId }: { sessionId: string }) {
     const draft = loadDraft(sessionId);
     reset(draft);
     setCompleted(countCompletedRequired(draft));
-  }, [sessionId, reset]);
+
+    /*
+     * Judge what the patient actually filled in. A restored value that is
+     * invalid should say so straight away rather than waiting to ambush them
+     * at submit — but a field left empty has not been visited yet, so it stays
+     * quiet until they edit it.
+     */
+    const filled = (Object.keys(draft) as PatientField[]).filter(
+      (key) => !FIELD_BY_KEY[key]?.internal && String(draft[key] ?? '').trim() !== '',
+    );
+    if (filled.length === 0) return;
+    for (const key of filled) {
+      setValue(key, draft[key] as never, { shouldTouch: true });
+    }
+    void trigger(filled);
+  }, [sessionId, reset, setValue, trigger]);
 
   const [gender, dateOfBirth, phoneCountry, emergencyPhoneCountry] = useWatch({
     control,
@@ -136,6 +154,13 @@ export function PatientForm({ sessionId }: { sessionId: string }) {
       if (REVALIDATE_ON_CHANGE.has(key)) {
         void trigger([key, ...(DEPENDENTS[key] ?? [])]);
       }
+      /*
+       * Re-judge as they type in two cases: clearing a field they have just
+       * edited is a deliberate act worth flagging at once, and a field already
+       * showing an error must clear it the moment they fix it rather than
+       * leaving stale red text on screen until the next blur.
+       */
+      if (value.trim() === '' || getFieldState(key).invalid) void trigger(key);
       const values = getValues();
       setCompleted(countCompletedRequired(values));
       try {
@@ -144,7 +169,7 @@ export function PatientForm({ sessionId }: { sessionId: string }) {
         // Private browsing or a full quota — the socket copy is still authoritative.
       }
     },
-    [pushField, getValues, sessionId, trigger],
+    [pushField, getValues, getFieldState, sessionId, trigger],
   );
 
   /** The combobox writes through form state rather than a native change event. */
@@ -162,8 +187,14 @@ export function PatientForm({ sessionId }: { sessionId: string }) {
       return {
         ...registration,
         onChange: async (event) => {
-          await registration.onChange(event);
           const target = event.target as HTMLInputElement;
+          // Strip before React Hook Form reads the value, so the rejected
+          // character never lands in form state or on screen.
+          if (FIELD_BY_KEY[key]?.type === 'phone') {
+            const cleaned = digitsOnly(target.value ?? '');
+            if (cleaned !== target.value) target.value = cleaned;
+          }
+          await registration.onChange(event);
           onFieldChanged(key, target.value ?? '');
         },
         onBlur: async (event) => {

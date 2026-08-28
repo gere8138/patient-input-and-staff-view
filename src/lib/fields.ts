@@ -1,5 +1,5 @@
 import { COUNTRIES, DEFAULT_PHONE_COUNTRY, flagEmoji } from './countries';
-import type { PatientField } from './schema';
+import { crossFieldIssues, isFieldValid, type PatientData, type PatientField } from './schema';
 
 export type FieldType = 'text' | 'tel' | 'email' | 'date' | 'textarea' | 'select' | 'radio' | 'phone';
 
@@ -163,7 +163,7 @@ export const FIELDS: FieldSpec[] = [
     type: 'phone',
     required: true,
     span: 'half',
-    placeholder: '081 234 5678',
+    placeholder: '0812345678',
     autoComplete: 'tel',
     inputMode: 'tel',
     help: 'Pick the country, then the number as you would dial it there.',
@@ -236,10 +236,10 @@ export const FIELDS: FieldSpec[] = [
     type: 'phone',
     required: true,
     span: 'half',
-    placeholder: '081 234 5678',
+    placeholder: '0899876543',
     autoComplete: 'tel',
     inputMode: 'tel',
-    help: 'Someone we can call if we cannot reach you.',
+    help: 'Digits only. Someone we can call if we cannot reach you.',
   },
   {
     key: 'emergencyContactName',
@@ -298,9 +298,12 @@ export function displayValue(key: PatientField, value: unknown): string {
   return raw;
 }
 
-export function countCompletedRequired(data: Partial<Record<PatientField, unknown>>): number {
-  return REQUIRED_FIELDS.filter((key) => {
-    const value = data[key];
-    return typeof value === 'string' ? value.trim().length > 0 : value !== undefined && value !== null;
-  }).length;
+/**
+ * How many required fields are both filled in and actually valid. A wrong
+ * phone number or a malformed email is not progress, so the meter does not
+ * credit it — otherwise the bar reaches full while submit still refuses.
+ */
+export function countCompletedRequired(data: Partial<PatientData>): number {
+  const issues = crossFieldIssues(data);
+  return REQUIRED_FIELDS.filter((key) => isFieldValid(key, data, issues)).length;
 }

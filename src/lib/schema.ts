@@ -20,6 +20,15 @@ export function normalisePhone(value: string): string {
 }
 
 /**
+ * Phone inputs accept digits and nothing else — the dialling prefix comes from
+ * the country picker, so letters, punctuation and stray "+" only ever produce
+ * a number that cannot be dialled. Applied on every keystroke and on paste.
+ */
+export function digitsOnly(value: string): string {
+  return value.replace(/\D/g, '');
+}
+
+/**
  * Validity is delegated to libphonenumber's per-country metadata, so a Thai
  * mobile, a UK landline and a US number are each judged by their own
  * numbering plan rather than one generic digit-count rule.
@@ -47,8 +56,7 @@ export function formatPhone(value: string, country: string = DEFAULT_PHONE_COUNT
 
 export const GENDER_VALUES = ['female', 'male', 'prefer_not_to_say'] as const;
 
-export const patientSchema = z
-  .object({
+const patientObject = z.object({
     firstName: z.string().trim().min(1, "Please enter your first name").max(60),
     middleName: z.string().trim().max(60).optional().or(z.literal('')),
     lastName: z.string().trim().min(1, "Please enter your last name").max(60),
@@ -76,12 +84,30 @@ export const patientSchema = z
     emergencyContactName: z.string().trim().max(80).optional().or(z.literal('')),
     emergencyContactRelationship: z.string().trim().max(40).optional().or(z.literal('')),
     religion: z.string().trim().max(60).optional().or(z.literal('')),
-  })
-  .superRefine((data, ctx) => {
-    for (const [path, message] of Object.entries(crossFieldIssues(data))) {
-      ctx.addIssue({ code: z.ZodIssueCode.custom, path: [path], message });
-    }
-  });
+});
+
+export const patientSchema = patientObject.superRefine((data, ctx) => {
+  for (const [path, message] of Object.entries(crossFieldIssues(data))) {
+    ctx.addIssue({ code: z.ZodIssueCode.custom, path: [path], message });
+  }
+});
+
+/**
+ * Judges one field on its own, plus any cross-field rule that points at it.
+ * Used by the progress meter, which must not credit a field the patient has
+ * filled in wrongly.
+ */
+export function isFieldValid(
+  key: PatientField,
+  data: Partial<PatientData>,
+  issues: Record<string, string> = crossFieldIssues(data),
+): boolean {
+  const value = data[key];
+  if (typeof value !== 'string' || value.trim() === '') return false;
+  if (issues[key]) return false;
+  const field = patientObject.shape[key];
+  return field ? field.safeParse(value).success : true;
+}
 
 export type PatientData = z.infer<typeof patientSchema>;
 
