@@ -1,395 +1,371 @@
-# Specification — Agnos Front-end Assignment
+# Development Planning Documentation
 
-**Project:** Real-time patient intake form + staff monitoring view
-**Deadline:** 3 days from receipt
-**Status:** Build specification (v1) — written before implementation, kept updated as decisions change.
-**Implementation status:** Built. §2 records what is verified; R21 (deployment) and R22 (public repo) are the two steps that need the owner's own hosting and GitHub accounts.
+**Project:** Agnos — real-time patient intake form with a live staff console
+**Stack:** Next.js 15 (App Router) · TypeScript · TailwindCSS v4 · Socket.IO · Zod · React Hook Form
 
----
-
-## 1. Objective
-
-Two interfaces, one shared session:
-
-| Interface | Route | Audience | Job |
-|---|---|---|---|
-| Patient Form | `/form/[sessionId]` (reached from the `/` landing page) | Patient on a phone in a waiting room | Enter personal details quickly and correctly, once. |
-| Staff View | `/staff` and `/staff/[sessionId]` | Clinic staff at a desk or tablet | Watch intake happen live, spot who is stuck, see who has submitted. |
-
-Every keystroke in the patient form must appear on the staff view without a refresh. The staff view must also say whether each patient is **actively filling**, **inactive**, or **submitted**.
+Two interfaces share one session. A patient fills in a form on their phone; the
+front desk watches it happen, field by field, without refreshing. This document
+covers the four things a reader needs to work on the codebase: how the files are
+organised, why the interface behaves as it does on each device, what each
+component is for, and how the realtime layer stays in sync.
 
 ---
 
-## 2. Requirements traceability
-
-Every line of the assignment mapped to where it is satisfied. This table is the checklist before submitting.
-
-| # | Requirement | Where satisfied | Done |
-|---|---|---|---|
-| R1 | First Name | `PatientForm` → `identity` section | ☑ |
-| R2 | Middle Name (optional) | `identity` | ☑ |
-| R3 | Last Name | `identity` | ☑ |
-| R4 | Date of Birth | `identity`, native date input + age hint | ☑ |
-| R5 | Gender | `identity`, radio group (female / male / prefer not to say) | ☑ |
-| R6 | Phone Number | `contact`, country picker + per-country validation | ☑ |
-| R7 | Email | `contact`, required and validated | ☑ |
-| R8 | Address | `contact`, textarea | ☑ |
-| R9 | Preferred Language | `background`, select of interpretable languages + Other | ☑ |
-| R10 | Nationality | `background`, select over all 245 countries | ☑ |
-| R11 | Emergency Contact | `emergency`: number required, name and relationship optional | ☑ |
-| R12 | Religion (optional) | `background` | ☑ |
-| R13 | Form validation (required fields, valid phone, valid email) | Zod schema + RHF resolver | ☑ |
-| R14 | Responsive patient form | Mobile-first, single column → two column at `md` | ☑ |
-| R15 | Staff view shows every field in real time | `SessionDetail` | ☑ |
-| R16 | Responsive staff view | List-only on mobile, list + detail split at `lg` | ☑ |
-| R17 | Indicators: submitted / actively filling / paused / inactive | `StatusPill` + presence state machine (§8) | ☑ |
-| R18 | WebSockets or suitable real-time tech | Socket.IO over WS (§5) | ☑ |
-| R19 | Next.js | App Router, TypeScript | ☑ |
-| R20 | TailwindCSS | v4, tokens in `globals.css` | ☑ |
-| R21 | Deployed on a cloud platform | Render / Railway (WS-capable), see §12 | ☐ |
-| R22 | Public repo + run instructions | README §13 | ☐ |
-| R23 | Development planning documentation | This file, committed to repo | ☑ |
-
----
-
-## 3. Tech stack and why
-
-| Layer | Choice | Reason |
-|---|---|---|
-| Framework | Next.js 15 (App Router) + TypeScript | Required. TypeScript because the same field schema is shared by both views and the socket payloads — one source of truth, no drift. |
-| Styling | TailwindCSS v4 | Required. Design tokens declared once in `globals.css` via `@theme`. |
-| Forms | React Hook Form + Zod (`@hookform/resolvers`) | RHF keeps re-renders local to the changed field, which matters when every keystroke also fires a socket emit. Zod gives one schema reused for client validation and server-side sanity checks. |
-| Real-time | Socket.IO (WebSocket transport, long-polling fallback) | Room-per-session maps directly to the problem. Auto-reconnect and fallback are already solved, which is what makes it safe on a free-tier host. |
-| Server | Custom Node server (`server.ts`) hosting both Next.js and Socket.IO | Single process, single deploy, single origin — no CORS, no second service to keep alive. |
-| State store | In-memory `Map<sessionId, SessionState>` with TTL sweep | The assignment scopes this as a front-end task; no persistence is required. Documented as a deliberate limit with the upgrade path (§14). |
-| Phone/country data | `libphonenumber-js` (max metadata) | A phone field that claims to validate must respect each country's numbering plan; hand-rolling that for 245 regions is a liability. The country/dial/flag list is generated from the same source, so the picker and the validator can never disagree. |
-| Testing | Vitest for the Zod schema, the phone rules and the status reducer | Small and targeted: validation rules and the presence state machine are the two places a silent bug would be invisible in a demo. |
-
-### The one real decision: where the socket lives
-
-Vercel's serverless functions cannot hold an open WebSocket. Three viable routes were considered:
-
-| Option | Verdict |
-|---|---|
-| **A. Custom Next.js server + Socket.IO on Render/Railway/Heroku** | **Chosen.** True WebSockets, no third-party account, one URL for everything. Costs the Vercel-specific edge optimisations, which this app does not need. |
-| B. Vercel + hosted pub/sub (Pusher / Ably) | Works and stays on Vercel, but adds a vendor, keys to manage, and a free-tier message cap that a keystroke-level stream will hit fast. |
-| C. Vercel + Supabase Realtime | Same trade as B, plus a database this project has no other use for. |
-
-If the reviewer specifically expects a Vercel URL, option B is the fallback: the socket layer is isolated behind `lib/realtime/` so the transport can be swapped without touching any component.
-
----
-
-## 4. Project structure
+## 1. Project structure
 
 ```
-agnos-realtime-intake/
-├── server.ts                       # Custom server: Next.js handler + Socket.IO
+agnos/
+├── server.ts                        Custom Node server: Next.js handler + Socket.IO + /healthz
+├── render.yaml                      Deployment blueprint (build, start, health check)
+├── scripts/
+│   └── gen-countries.mjs            Generates src/lib/countries.ts from libphonenumber metadata
+│
 ├── src/
-│   ├── app/
-│   │   ├── layout.tsx              # Fonts, theme tokens, <html lang>
-│   │   ├── page.tsx                # Landing: "Start intake" / "Open staff view"
-│   │   ├── form/[sessionId]/page.tsx
-│   │   ├── staff/page.tsx          # Session list (mobile) / split view (desktop)
-│   │   └── staff/[sessionId]/page.tsx
+│   ├── app/                         Routes only — no logic lives here
+│   │   ├── layout.tsx               Fonts, theme tokens, <html lang>
+│   │   ├── globals.css              Tailwind v4 @theme design tokens, keyframes, resets
+│   │   ├── page.tsx                 Landing: start an intake / open the console
+│   │   ├── not-found.tsx            Invalid session link
+│   │   ├── form/[sessionId]/        Patient form (validates the id, then renders)
+│   │   └── staff/[sessionId]/       Staff console, deep-linked to one session
+│   │       └── ../staff/page.tsx    Staff console, no selection
+│   │
 │   ├── components/
-│   │   ├── form/                   # Field primitives + section blocks
-│   │   ├── staff/                  # SessionList, SessionDetail, StatusPill, FieldRow
-│   │   └── ui/                     # Button, Field, Toast, EmptyState
-│   ├── lib/
-│   │   ├── schema.ts               # Zod schema + inferred PatientData type
-│   │   ├── fields.ts               # Field registry: key, label, type, section, options
-│   │   ├── presence.ts             # Status derivation (pure, unit-tested)
-│   │   └── realtime/
-│   │       ├── events.ts           # Typed event contract, shared client+server
-│   │       ├── client.ts           # Browser socket singleton
-│   │       └── server.ts           # Handlers + in-memory store
-│   └── hooks/
-│       ├── usePatientSession.ts    # Patient side: emit debounced updates
-│       └── useStaffSessions.ts     # Staff side: subscribe to all sessions
-├── docs/specification.md           # This file
-└── README.md
+│   │   ├── form/                    Patient surface: field primitives + form shell
+│   │   ├── staff/                   Console surface: list, detail, status, delete
+│   │   └── ui/Field.tsx             Shared label/help/error shell + control classes
+│   │
+│   ├── hooks/
+│   │   ├── usePatientSession.ts     Patient side: coalesced emits, focus, submit
+│   │   └── useStaffSessions.ts      Staff side: subscribe to every session
+│   │
+│   └── lib/
+│       ├── fields.ts                Field registry — the spine of the app
+│       ├── schema.ts                Zod schema + cross-field rules + phone helpers
+│       ├── presence.ts              Status derivation and sort order (pure)
+│       ├── countries.ts             Generated: 245 countries, dial codes, demonyms
+│       └── realtime/
+│           ├── events.ts            Typed event contract, shared client + server
+│           ├── client.ts            Browser socket singleton
+│           ├── server.ts            Socket handlers + inactivity sweep
+│           └── store.ts             SessionStore interface + in-memory implementation
+│
+└── tests/                           Vitest: schema, presence, store
 ```
 
-**Why this shape:** `lib/fields.ts` is the spine. The patient form renders from it, the staff view renders from it, and the Zod schema keys match it. Adding a field is one entry in one array, not four edits across two views.
+### The organising principle
+
+**`src/lib/fields.ts` is the spine.** It is a single array describing every
+question: key, label, section, control type, whether it is required, and how wide
+it sits. The patient form renders from it, the staff detail pane renders from it,
+the progress meter counts from it, and the socket server uses it to reject unknown
+keys. Adding a question is one entry in that array plus one line in the Zod
+schema — not four edits across two screens that can drift apart.
+
+**Pure logic is separated from React.** `presence.ts`, `schema.ts` and `store.ts`
+have no React or socket imports, which is why they carry the test suite. A silent
+bug in validation or in the status machine would be invisible in a demo, so those
+are the two places worth testing hardest.
+
+**The transport is isolated behind `lib/realtime/`.** Components never import
+`socket.io-client`. They talk to the two hooks; the hooks talk to the realtime
+module. Swapping the transport touches that folder and nothing else.
+
+**`countries.ts` is generated, not hand-maintained.** It is committed rather than
+built at runtime so the server and the browser always render an identical
+`<option>` list — deriving country names from `Intl` at render time risks a
+hydration mismatch when Node's ICU data and the browser's disagree.
+
+**Routes are thin.** Everything under `src/app/` validates params and renders a
+component. No data logic lives in a route file.
 
 ---
 
-## 5. Architecture and data flow
+## 2. Design
 
-```
-┌────────────────────┐                      ┌────────────────────┐
-│   Patient (phone)  │                      │   Staff (desktop)  │
-│  /form/[sessionId] │                      │       /staff       │
-└─────────┬──────────┘                      └──────────▲─────────┘
-          │ form:update  (debounced 250ms)             │
-          │ form:submit                                │ session:patch
-          │ connect / disconnect                       │ session:list
-          ▼                                            │
-   ┌──────────────────────────────────────────────────┴──────┐
-   │        Node process — Next.js handler + Socket.IO        │
-   │  rooms:  session:<id>   (patient + any staff watching)   │
-   │          staff:lobby    (all staff, gets every patch)    │
-   │  store:  Map<sessionId, SessionState>  + 30min TTL sweep │
-   └──────────────────────────────────────────────────────────┘
-```
+### Two surfaces, one product
 
-The server is a relay with a small amount of authority: it stamps `updatedAt`, derives status, and is the only thing that decides a session has gone inactive.
+The two audiences use this in opposite conditions. A patient fills it in once,
+nervously, on a phone they are holding. Staff keep it open all shift on a bright
+desk monitor. Giving both the same skin would serve neither.
+
+| | Patient | Staff |
+| --- | --- | --- |
+| Ground | Near-white paper (`--color-paper`) | Dark console (`--color-console`) |
+| Colour | Reserved for focus and errors | Reserved almost entirely for status |
+| Density | Generous, one thing at a time | Compact, many patients at a glance |
+| Type | Sans throughout | Mono for ids, values, timestamps |
+
+Colour on the console is deliberately scarce so a glance across the room reads as
+"two amber, one green" without anyone parsing text.
+
+### Breakpoints
+
+Only three, because only three real changes are needed.
+
+| Width | Patient form | Staff console |
+| --- | --- | --- |
+| **< 640px** | Single column. Sticky progress + submit bar pinned to the bottom edge. | List only. Tapping a row opens the detail full-screen with a back button. |
+| **≥ 640px** (`sm`) | Half-width fields pair up two per row; full-width fields span both. | Wider padding, same list. |
+| **≥ 1024px** (`lg`) | Content capped at 720px and centred. The progress bar becomes a floating rounded card, still sticky, lifted off the bottom edge. | Split view: a 320px list rail beside the detail pane. |
+| **≥ 1440px** | Unchanged. | Detail pane lays its four sections out in two columns. |
+
+### Mobile-specific decisions
+
+- **Inputs are at least 16px.** Anything smaller makes iOS Safari zoom the page
+  on focus, which throws the layout and is disorienting mid-form.
+- **44px minimum tap targets** on every control, including radio rows.
+- **The submit bar is sticky, not parked at the bottom of a long form.** The
+  patient always knows how much is left and can submit the moment it is valid.
+- **The country picker's popover** is capped at `min(20rem, 100vw - 2rem)` so it
+  never overflows a 375px screen, and its trigger stays a fixed 108px so the
+  number field beside it keeps a usable width.
+
+### Desktop-specific decisions
+
+- **The console auto-selects the first session on desktop only**, gated behind a
+  `matchMedia('(min-width: 1024px)')` check. On desktop an empty detail pane is
+  wasted space; on mobile auto-selecting would hide the list the moment the page
+  loaded.
+- **The list rail and detail pane scroll independently**, so watching one patient
+  does not lose your place in the queue.
+
+### Layout stability
+
+Two rules exist because both were visible bugs before they were rules.
+
+1. **Every field reserves one line beneath its control** for a hint or an error,
+   whether or not it has one. Without this, an error appearing or the date-of-birth
+   age hint resolving would shove every field below it down the page.
+2. **Help text sits below the control, never above.** Otherwise a field with a
+   hint pushes its input down relative to the field beside it, and paired fields
+   stop lining up. This is what keeps *Preferred language* and *Nationality*
+   level despite only one carrying a hint.
+
+The same thinking applies to the console: the delete button on an inactive
+session gets its own footer row rather than floating over the card, so it can
+never overlap the progress bar, and the row keeps identical height whether the
+button is idle or showing its confirm step.
+
+### Feedback and error timing
+
+- Errors appear **on blur**, then update live once the patient has visited the
+  field. A field they have not reached yet never shows red.
+- Clearing a field they have just edited validates **immediately** — deleting
+  something is a deliberate act worth answering at once.
+- A field already showing an error revalidates **as they type**, so the message
+  disappears the moment it is fixed rather than lingering until the next blur.
+- On returning to a saved session, restored values that are invalid say so
+  straight away; fields left empty stay quiet.
+
+### Accessibility
+
+Every input has a real `<label>`. Errors are linked with `aria-describedby` and
+announced via `role="alert"`. Radio groups use `fieldset`/`legend`. Status changes
+on the console go through an `aria-live` region. Focus rings are visible
+throughout, and tinted per surface — accent on paper, signal amber on the console.
+`prefers-reduced-motion` disables the caret pulse and the row-change flash.
 
 ---
 
-## 6. Data model
+## 3. Component architecture
 
-```ts
-// lib/schema.ts
-export const patientSchema = z.object({
-  firstName:      z.string().min(1, 'Enter the patient\'s first name').max(60),
-  middleName:     z.string().max(60).optional().or(z.literal('')),
-  lastName:       z.string().min(1, 'Enter the patient\'s last name').max(60),
-  dateOfBirth:    z.string().refine(isRealPastDate, 'Enter a date of birth in the past'),
-  gender:         z.enum(['female', 'male', 'prefer_not_to_say']),
-  phone:          z.string().refine(isValidPhone, 'Enter a phone number with 9–15 digits'),
-  email:          z.string().min(1, 'Enter an email address').email('Enter an email like name@example.com'),
-  address:        z.string().min(5, 'Enter a street address').max(300),
-  preferredLanguage: z.string().min(1, 'Choose a preferred language'),
-  nationality:    z.string().min(1, 'Choose a nationality'),
-  emergencyContactName: z.string().max(80).optional(),
-  emergencyContactRelationship: z.string().max(40).optional(),
-  religion:       z.string().max(60).optional(),
-})
-.refine(bothOrNeither('emergencyContactName', 'emergencyContactRelationship'),
-  { message: 'Add the relationship as well as the name', path: ['emergencyContactRelationship'] });
-
-export type PatientData = z.infer<typeof patientSchema>;
-```
-
-```ts
-// lib/realtime/events.ts
-export type PresenceStatus = 'filling' | 'idle' | 'inactive' | 'submitted';
-
-export interface SessionState {
-  sessionId: string;
-  data: Partial<PatientData>;
-  activeField: keyof PatientData | null;   // what they are typing in right now
-  completedFields: number;                 // for the progress meter
-  status: PresenceStatus;
-  startedAt: number;
-  lastActivityAt: number;
-  submittedAt: number | null;
-}
-```
-
-**Validation rules**
-
-| Field | Rule |
-|---|---|
-| First name, Last name | Required, 1–60 chars |
-| Date of birth | Required, parseable, not in the future, age ≤ 120 |
-| Gender | Required; one of three fixed options, no free-text branch |
-| Phone | Required; country picker + number, validated against that country's numbering plan via `libphonenumber-js` |
-| Email | Required and validated (the brief allows optional; the product owner asked for it to be required) |
-| Address | Required, min 5 chars |
-| Preferred language | Required, from a list |
-| Nationality | Required; all 245 countries and territories, by demonym where one exists |
-| Emergency contact | Number required and validated against its own country; name and relationship independent and optional |
-| Religion | Optional, free text |
-
-Errors surface on blur, then live-update once the field has been touched. Never validate a field the patient has not visited yet.
-
----
-
-## 7. Component architecture
-
-### Patient side
+### Patient surface
 
 | Component | Purpose |
-|---|---|
-| `PatientFormPage` | Owns the RHF form instance and the socket connection for one session. |
-| `FormSection` | Groups fields under a heading: Identity → Contact → Background → Emergency contact. Grouping reduces the perceived length of a 12-field form on a phone. |
-| `TextField` / `SelectField` / `DateField` / `RadioGroup` / `PhoneField` | Field primitives. Each takes `name`, `label`, `error`, and reports focus/blur upward so the staff view can show `activeField`. `PhoneField` pairs a searchable country combobox with the number. |
-| `ProgressMeter` | Sticky footer on mobile: "8 of 10 required fields complete" + the submit button. |
-| `ConnectionBadge` | Shows reconnecting / offline state so a patient never types into a void. |
-| `SubmittedScreen` | Replaces the form on success; confirms and shows a reference code. |
+| --- | --- |
+| `PatientForm` | Owns the React Hook Form instance and the socket session for one form. Holds the custom resolver, the draft restore, the field dispatcher and the submit handler. Everything else on this side is presentational. |
+| `FormSection` | Groups fields under a numbered heading — About you → How we reach you → Background → Emergency contact. Chunking reduces the perceived length of a 14-field form on a phone. |
+| `ui/Field.tsx` | `FieldShell`: the label, the reserved message line, and the shared control classes. Every primitive wraps itself in this, which is what makes the fields dimensionally identical. |
+| `TextField` / `DateField` / `TextAreaField` / `SelectField` / `RadioGroup` | Field primitives, one per control type. `DateField` also derives the age hint from the entered date. |
+| `PhoneField` | A country picker and a number input sharing one bordered box so the pair reads as a single control, with the focus ring on the container. Used for both the patient's number and the emergency contact's. |
+| `CountryCombobox` | Searchable picker over all 245 countries — by name, ISO code or dialling code. A native `<select>` cannot be typed into freely, and 245 options need search. Keyboard-navigable, with the main country ranked first on a shared dialling code so "44" offers the UK before Jersey. |
+| `ProgressMeter` | Sticky footer: "N of 10 required fields complete", the bar, and the submit button. |
+| `ConnectionBadge` | Renders nothing while healthy. Surfaces a fixed banner only after a drop persists, so a momentary hiccup does not flash a warning. |
+| `SubmittedScreen` | Replaces the form on success and shows the Form ID. |
 
-### Staff side
+### Staff surface
 
 | Component | Purpose |
-|---|---|
-| `StaffDashboard` | Subscribes to `staff:lobby`, holds the session map. |
-| `SessionList` | One row per patient: name-so-far (or "Unnamed patient"), status pill, progress, relative time. Sorted: filling → idle → submitted → inactive. |
-| `SessionDetail` | Every field, live. Missing values render as a muted placeholder rather than a blank so the layout does not jump. |
-| `FieldRow` | Label + value; briefly highlights when its value changes; shows a caret marker when it is the patient's `activeField`. |
-| `StatusPill` | The indicator required by R17. One component, four states, used in both list and detail. |
-| `EmptyState` | "No patients are filling in a form right now" + a copyable link to start one. Useful during the demo. |
+| --- | --- |
+| `StaffDashboard` | Subscribes to every session, owns the selection, and decides list-only versus split by viewport. Keeps the URL shareable via `history.replaceState` rather than a route change, which would tear down the socket view. |
+| `SessionList` | One row per patient: name so far (or "Unnamed patient"), status pill, progress, and either the field being typed in or the time since last activity. Sorted filling → paused → submitted → inactive. |
+| `SessionDetail` | Every field of one session, live. Missing values render as a muted dash rather than a blank so the layout never jumps. |
+| `FieldRow` | Label and value. Briefly flashes when its value changes, and shows the caret marker when the patient's cursor is in that field. |
+| `StatusPill` | The status indicator. One component, four states, used in both the list and the detail header. |
+| `DeleteSessionButton` | Two-step confirm for clearing an abandoned session. Deliberately not a modal — the action is small — and deliberately not one click, because it is irreversible. |
+| `EmptyState` | Shown when nothing is live. Generates a copyable intake link, which is how a session actually starts in a clinic. |
+
+### The signature element
+
+When the patient's cursor is in *Phone number*, that row in the console shows a
+soft pulsing caret. It answers "is this person actually filling the form in" with
+the thing itself rather than a badge claiming it. Everything else on the console
+is deliberately flat so this reads.
+
+### Hooks and lib
+
+| Module | Purpose |
+| --- | --- |
+| `usePatientSession` | Joins the session, coalesces field changes, sends focus immediately, submits, and repairs server state on reconnect. |
+| `useStaffSessions` | Joins the lobby, maintains the session map from patches and status events, and exposes the delete action. Ticks once a second so relative times and sort order stay current without server chatter. |
+| `lib/fields.ts` | The field registry, the option lists, and the completed-field counter. |
+| `lib/schema.ts` | The Zod schema, the cross-field rules, and the phone helpers (per-country validation, formatting, digit stripping). |
+| `lib/presence.ts` | Status derivation, sort order, relative time. Pure and tested. |
+| `lib/realtime/store.ts` | The `SessionStore` interface and its in-memory implementation. The interface exists so the store can move to Redis without touching anything else. |
 
 ---
 
-## 8. Real-time synchronization flow
+## 4. Real-time synchronization flow
+
+### Topology
+
+```
+Patient (phone)                                    Staff (desktop)
+/form/[sessionId]                                  /staff
+      │  session:join                                    ▲
+      │  form:update  (coalesced, 250ms)                 │  session:list
+      │  form:focus   (immediate)                        │  session:patch
+      │  form:submit                                     │  session:status
+      │  (disconnect on tab close)                       │  session:removed
+      ▼                                    staff:delete  │
+┌──────────────────────────────────────────────────────┴─────┐
+│          One Node process — Next.js handler + Socket.IO      │
+│  rooms:  session:<id>   patient + any staff watching it      │
+│          staff:lobby    every console, receives every patch  │
+│  store:  Map<sessionId, SessionState>                        │
+│          Map<sessionId, Set<socketId>>  which tabs are open  │
+│  sweep:  every 5s — re-derive status, expire after 30min     │
+└──────────────────────────────────────────────────────────────┘
+```
+
+The server is a relay with just enough authority to be trustworthy: it stamps
+`lastActivityAt`, derives status, sanitises incoming patches against the field
+registry, re-validates submissions, and is the only thing that decides a session
+has gone inactive. It never trusts a client clock.
 
 ### Event contract
 
-**Patient → server**
+**Client → server**
 
 | Event | Payload | Notes |
-|---|---|---|
-| `session:join` | `{ sessionId }` | Creates the session if new; joins room `session:<id>`. |
-| `form:update` | `{ sessionId, patch: Partial<PatientData>, activeField }` | Debounced 250 ms per field. Sends only changed keys, not the whole form. |
-| `form:focus` | `{ sessionId, field \| null }` | Immediate, not debounced — drives the caret marker. |
-| `form:submit` | `{ sessionId, data }` | Server re-validates with the same Zod schema before accepting. |
-| _(socket disconnect)_ | — | Socket.IO's own lifecycle; closing the tab is what makes a session inactive. |
+| --- | --- | --- |
+| `session:join` | `{ sessionId }` | Creates the session if new, joins its room, and registers this tab as holding the form open. |
+| `form:update` | `{ sessionId, patch, activeField }` | Only the changed keys, never the whole form. |
+| `form:focus` | `{ sessionId, field }` | Immediate, undebounced — drives the caret. |
+| `form:submit` | `{ sessionId, data }` → ack | Server re-validates before accepting. |
+| `staff:join` | `{}` → ack | Joins `staff:lobby`, receives the full list. |
+| `staff:watch` | `{ sessionId }` | Joins one session's room for deep links. |
+| `staff:delete` | `{ sessionId }` → ack | Refused unless the session is inactive. |
 
-**Server → staff**
+**Server → client**
 
 | Event | Payload | Notes |
-|---|---|---|
-| `session:list` | `SessionState[]` | Sent once on staff connect. |
-| `session:patch` | `{ sessionId, patch, activeField, status, lastActivityAt }` | Broadcast to `staff:lobby` on every change. |
-| `session:status` | `{ sessionId, status, lastActivityAt, connected }` | Emitted by the pause sweep and on disconnect. |
-| `staff:delete` | `{ sessionId }` → `{ ok }` | Staff clearing an abandoned session. Server refuses anything not inactive. |
-| `session:removed` | `{ sessionId }` | After TTL expiry. |
+| --- | --- | --- |
+| `session:list` | `SessionState[]` | Once, on staff connect. |
+| `session:patch` | `{ sessionId, patch, activeField, completedFields, status, … }` | On every change. |
+| `session:status` | `{ sessionId, status, lastActivityAt, connected }` | From the sweep and on disconnect, when nothing else changed. |
+| `session:removed` | `{ sessionId }` | After TTL expiry or a staff delete. |
 
-### Status state machine
+### Why 250ms
 
-Derived on the server, in one pure function (`lib/presence.ts`) so it is testable and cannot diverge between views.
+Sending every keystroke as its own packet is wasteful and, on a slow connection,
+arrives out of order. Changes accumulate into a pending patch that flushes at most
+every 250ms — a trailing throttle, not a debounce, so continuous typing still
+streams rather than waiting for a pause. 250ms is below the threshold at which a
+watching human perceives lag, and it collapses a burst of typing into one message.
+
+`form:focus` is exempt. The caret marker has to feel instant.
+
+### Status derivation
+
+One pure function, `deriveStatus`, is the only thing that decides status. Both the
+sweep and every inbound event go through it, so the list and the detail pane can
+never disagree.
 
 ```
-                     any typing or field change
-        ┌──────────────────────────────────────────┐
-        ▼                                          │
-   ┌─────────┐   no input for 15s    ┌────────┐    │
-   │ filling │ ────────────────────► │ paused │ ───┘
-   └────┬────┘                       └───┬────┘
-        │ form:submit          tab closed│  tab closed
-        ▼                                ▼
-   ┌───────────┐                   ┌──────────┐
-   │ submitted │                   │ inactive │  staff may delete
-   └───────────┘                   └──────────┘
+                      any typing or field change
+        ┌────────────────────────────────────────────┐
+        ▼                                            │
+   ┌─────────┐    no input for 15s     ┌────────┐    │
+   │ filling │ ─────────────────────►  │ paused │ ───┘
+   └────┬────┘                         └───┬────┘
+        │ form:submit          tab closed  │  tab closed
+        ▼                                  ▼
+   ┌───────────┐                    ┌──────────┐
+   │ submitted │                    │ inactive │  staff may delete
+   └───────────┘                    └──────────┘
       terminal
 ```
 
-**Paused** counts only real input, with no heartbeat propping it up, so an open but untouched form
-reads as paused. **Inactive** is driven by the socket disconnecting, so it means the tab is gone
-rather than merely quiet. Only inactive sessions can be deleted by staff.
+The three live states answer three different questions:
 
-A 5-second server interval re-derives status for all sessions and emits `session:status` only for those that changed. Emitting only on change keeps an idle dashboard quiet.
+| State | Means |
+| --- | --- |
+| **Actively filling** | Something changed in the last 15 seconds. |
+| **Paused** | The form is still open on their device, but nothing has been entered for 15 seconds. |
+| **Inactive** | The tab is gone and the form was never submitted. |
 
-### Why debounce at 250 ms
+**Paused counts real input only** — typing, changing a field, moving between
+fields. There is no heartbeat propping it up, so a form sitting open and untouched
+correctly reads as paused rather than as active.
 
-Every keystroke as its own packet is wasteful and, on a slow connection, arrives out of order. 250 ms is below the threshold at which a watching human perceives lag, and it collapses a burst of typing into one message. `form:focus` stays undebounced because the caret marker should feel instant.
+**Inactive is driven by the socket disconnecting**, not by a timer, so it means
+"they closed it" rather than "they went quiet". The store tracks which tabs hold
+each session open, so a second tab keeps a session alive and a staff socket
+watching a session never keeps it out of inactive.
 
-### Reconnection
+**Submitted is terminal.** It survives the tab closing and late-arriving patches
+cannot reopen it.
 
-Socket.IO reconnects with backoff. On reconnect the patient client re-emits `session:join` followed by a full `form:update` with the current form values, so the server's copy is repaired rather than left stale. The staff client re-requests `session:list` and replaces its map wholesale.
+A 5-second sweep re-derives status for every session and emits `session:status`
+only for those that changed, so an idle dashboard stays quiet. Sessions untouched
+for 30 minutes are dropped.
 
-### Ordering and conflicts
+### Reconnection and repair
 
-One writer per session, so no merge logic is needed. Patches are shallow-merged in arrival order; `updatedAt` is stamped server-side to avoid trusting client clocks.
+Socket.IO reconnects with backoff. On reconnect the patient client re-emits
+`session:join` followed by a full `form:update` carrying its current values, so
+the server's copy is repaired rather than left stale — this is what lets a
+restarted server recover every in-flight session from its clients. The staff
+client re-requests `session:list` and replaces its map wholesale rather than
+merging into possibly-stale state.
 
----
+While disconnected the form stays editable and the draft continues saving to
+`localStorage`; the console keeps its last-known data on screen, labelled with
+when it was received.
 
-## 9. Design decisions (UI/UX)
+### Ordering, conflicts and trust
 
-**Direction: paper for the patient, console for staff.** The two audiences use this product in opposite conditions — a patient fills it in once, nervously, on a phone; staff keep it open all shift on a bright screen. Giving them the same skin would serve neither. The patient surface is near-white and quiet, with generous line height and large tap targets. The staff surface is a dark console where colour is reserved almost entirely for status, so a glance across the room reads as "two amber, one green."
+There is exactly one writer per session, so no merge logic is needed. Patches are
+shallow-merged in arrival order and `lastActivityAt` is stamped server-side.
 
-**Tokens** (declared once in `globals.css`):
+Three things the server does not take on faith:
 
-| Token | Value | Use |
-|---|---|---|
-| `--paper` | `#FBFBF9` | Patient background |
-| `--ink` | `#10312E` | Primary text, deep pine |
-| `--accent` | `#146B5F` | Focus rings, primary button, active field marker |
-| `--console` | `#14181B` | Staff background |
-| `--console-raised` | `#1E2429` | Staff cards |
-| `--signal` | `#E8B93A` | Actively filling |
-| `--ok` | `#3E9C6B` | Submitted |
-| `--muted` | `#8A9199` | Inactive, placeholders |
-| `--alert` | `#C2453B` | Validation errors |
-
-**Type:** IBM Plex Sans Thai for everything — it carries Latin and Thai in one family with matching metrics, which a Thai clinic product actually needs and which most UI stacks fumble. IBM Plex Mono for timestamps, session IDs, and the field values in the staff console, where alignment and scannability beat warmth.
-
-**Signature element:** the *live field caret* in the staff view. When the patient's cursor is in "Phone number," that row in the staff console shows a soft pulsing marker. It is the clearest possible answer to "is this person actively filling in the form" — not a badge that says so, but the thing itself. Everything else on the page stays deliberately flat so this reads.
-
-**Responsive behaviour**
-
-| Breakpoint | Patient form | Staff view |
-|---|---|---|
-| `< 640px` | Single column, 16px base font (prevents iOS zoom-on-focus), 44px min tap targets, sticky submit bar with progress | List only; tapping a row pushes to `/staff/[sessionId]` |
-| `640–1024px` | Two columns for short paired fields (first/middle, city-level fields) | List only, wider rows, more metadata per row |
-| `≥ 1024px` | Max width 720px, centred; sections spaced, no sticky bar | Split view: 320px list rail + detail pane |
-| `≥ 1440px` | Unchanged | Detail pane shows fields in two columns |
-
-**Accessibility floor:** every input has a real `<label>`; errors are linked with `aria-describedby` and announced via `role="alert"`; status changes on the staff side go through an `aria-live="polite"` region; visible focus rings throughout; `prefers-reduced-motion` disables the caret pulse and the row-change highlight.
+1. **Patch keys** are filtered against the field registry and truncated, so an
+   unknown or oversized key never enters the store.
+2. **Submissions** are re-validated with the same Zod schema the client uses, so a
+   tampered or stale payload is rejected identically either way.
+3. **Deletes** are refused unless the session is genuinely inactive — a live,
+   paused or submitted session cannot be removed, whatever the client asks.
 
 ---
 
-## 10. Error and empty states
+## Known limitations
 
-| Situation | Behaviour |
-|---|---|
-| Socket disconnected (patient) | Amber bar: "Reconnecting — your answers are saved on this device." Form stays editable; queued patch flushes on reconnect. |
-| Socket disconnected (staff) | Console dims, banner: "Reconnecting to live updates." Last-known data stays visible, marked with the time it was received. |
-| Submit fails validation server-side | Field-level errors returned by key and applied to the form; page scrolls to the first one. |
-| No active sessions | "No patients are filling in a form right now" + copyable start link. |
-| Unknown `sessionId` on staff detail | "This session has ended or expired" + back to the list. |
+Stated plainly — these are scope choices, not oversights.
 
----
-
-## 11. Bonus features (if time remains, in priority order)
-
-1. **Draft persistence** — mirror form state to `localStorage` so a dropped connection or accidental refresh does not lose the patient's work.
-2. **QR handoff** — staff view shows a QR code for a fresh session; the patient scans and starts on their own phone. This is how the app would actually be used in a clinic.
-3. **Field-level "last changed" timestamps** in the staff detail pane.
-4. **Thai/English UI toggle**, wired to the Preferred Language field.
-5. **Completion analytics** — which field patients spend longest on, shown in the staff console.
-
-Nothing here ships at the cost of the required features or the README.
-
----
-
-## 12. Deployment
-
-**Target: Render (Web Service, free tier)** — Node process, WebSockets supported, deploy on push.
-
-```
-Build:  npm ci && npm run build
-Start:  npm run start        # node server.js — serves Next.js + Socket.IO
-Env:    PORT (provided), NEXT_PUBLIC_SOCKET_PATH=/api/socket
-Health: GET /healthz → 200
-```
-
-Railway and Heroku work identically. Free-tier cold starts are a known trade — the README notes that the first request may take a few seconds to wake the service.
-
-**Pre-submission checks:** two devices on the deployed URL, one on mobile data; verify a keystroke on the phone appears in the staff console; kill the patient's network and confirm the status walks filling → idle → inactive; submit and confirm the pill goes green and stays green.
-
----
-
-## 13. README outline (deliverable)
-
-1. What this is + live URL + a 30-second "try it" (open staff view in one tab, form in another)
-2. Screenshots: patient form on mobile, staff console on desktop
-3. Local setup: `npm install`, `npm run dev`, open two browsers
-4. Environment variables
-5. Architecture summary + link to `docs/specification.md`
-6. Real-time flow in five sentences
-7. Bonus features implemented
-8. Known limitations and what would change for production (§14)
-
----
-
-## 14. Known limitations
-
-Stated plainly rather than hidden — these are deliberate scope choices, not oversights.
-
-- **In-memory store.** Sessions are lost on restart and do not survive horizontal scaling. Production would move the session map to Redis and use the Socket.IO Redis adapter; the store is already behind an interface so this is a single-file change.
-- **No authentication.** Anyone with the URL can open the staff view. Real deployment needs staff auth and per-clinic scoping.
-- **No encryption at rest or PHI handling.** This holds real personal health data in production; that requires consent capture, an audit trail, and a compliance review well beyond this assignment.
-- **No i18n framework.** Copy is English-only unless bonus item 4 ships.
-
----
-
-## 15. Plan
-
-- Scaffold Next.js + Tailwind + custom server. `fields.ts`, `schema.ts`, `events.ts`. Patient form rendering and validating end to end, no sockets yet. Deploy an empty shell early to prove the pipeline. |
-- Socket.IO server, session store, presence state machine + its unit tests. Staff list and detail wired to live patches. Status pills. Responsive passes on both views at all breakpoints. |
-- Reconnection handling, error and empty states, accessibility pass, real two-device testing on the deployed URL. README, screenshots, this spec committed. Bonus features only after everything above is green. |
-
-Deploy as soon as possible and push to it daily. Leaving deployment to the last afternoon is the most common way an otherwise finished assignment arrives broken.
+- **In-memory store.** Sessions are lost on restart and do not survive horizontal
+  scaling. Production would move the map to Redis with the Socket.IO Redis
+  adapter; the store already sits behind the `SessionStore` interface, so that is
+  a single-file change.
+- **Requires a long-lived Node process.** The realtime layer needs a host that
+  runs `server.ts` — Render, Railway, Fly, Heroku. Serverless platforms give each
+  invocation its own memory, so the patient's connection and the staff console's
+  connection can land on different instances and never see each other. Deploying
+  there would require the Redis store and pub/sub described above.
+- **No authentication.** Anyone with the URL can open the console. A real
+  deployment needs staff auth and per-clinic scoping.
+- **No PHI handling.** This holds real personal health data in production, which
+  requires consent capture, an audit trail, encryption at rest and a compliance
+  review well beyond this assignment.

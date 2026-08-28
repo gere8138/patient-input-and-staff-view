@@ -1,23 +1,26 @@
-# Agnos Realtime Intake
+# Agnos — real-time patient form
 
-A patient intake form that the front desk can watch being filled in, keystroke by keystroke.
+A patient form that the front desk can watch being filled in, keystroke by keystroke.
 
-Two interfaces over one shared session:
+Two screens over one shared session:
 
-| Interface | Route | Who it is for |
-| --- | --- | --- |
-| Patient form | `/form/[sessionId]` | A patient on a phone in the waiting room |
-| Staff console | `/staff`, `/staff/[sessionId]` | Clinic staff at a desk or tablet |
+| Screen | Route | Shown as | Who it is for |
+| --- | --- | --- | --- |
+| Patient form | `/form/[sessionId]` | *Agnos · form* → "Before we see you" | A patient on a phone in the waiting room |
+| Intake Form Console | `/staff`, `/staff/[sessionId]` | *Agnos · staff console* | Clinic staff at a desk or tablet |
 
-Every keystroke on the patient form appears in the staff console with no refresh, and each session
-is labelled **actively filling**, **paused**, **inactive** or **submitted**.
+Every keystroke on the patient form appears in the console with no refresh, and each session is
+labelled **actively filling**, **paused**, **inactive** or **submitted**.
+
+Each session has a **Form ID** — a code like `ABCD-2345`. It is in the URL, shown to the patient
+under the form, given back on the confirmation screen, and used by staff to identify the session.
 
 ## Try it in 30 seconds
 
-1. Open the staff console in one window: `/staff`
-2. Open a patient form in another: click **Start a patient intake** from `/`
-3. Type in the form. The console updates as you type, shows which field the cursor is in, and
-   moves the progress bar. Submit, and the pill turns green.
+1. Open `/` and click **Open the staff console**.
+2. In a second window, open `/` again and click **Start a patient form**.
+3. Type. The console updates as you type, shows which field the cursor is in, and moves the
+   progress bar. Submit, and the pill turns green.
 
 ## Local setup
 
@@ -32,7 +35,7 @@ network — to see both sides at once.
 Other scripts:
 
 ```bash
-npm test        # Vitest: validation schema + presence state machine
+npm test        # Vitest: schema, presence machine, session store
 npm run build   # Production build
 npm start       # Production server (Next.js + Socket.IO in one process)
 ```
@@ -135,7 +138,7 @@ src/lib/realtime/server.ts    Socket handlers and the inactivity sweep
 src/hooks/                    usePatientSession, useStaffSessions
 src/components/form/          Patient form: field primitives, sections, progress
 src/components/staff/         Console: list, detail, status pill, live field caret
-tests/                        Vitest: schema rules and the presence machine
+tests/                        Vitest: schema rules, presence machine, session store
 ```
 
 Adding a field is one entry in `src/lib/fields.ts` plus one line in the Zod schema — the form, the
@@ -160,16 +163,17 @@ Thai mobile and an invalid Singapore number, and the form says so:
 | Country | `081 234 5678` | Message |
 | --- | --- | --- |
 | Thailand | valid | — |
-| United States | invalid | "Enter a valid United States phone number" |
-| Singapore | invalid | "Enter a valid Singapore phone number" |
+| United States | invalid | "Please enter a valid United States phone number" |
+| Singapore | invalid | "Please enter a valid Singapore phone number" |
 
 The picker is a searchable combobox rather than a native select: type a country name, an ISO code,
 or the dialling code itself. Typing `44` offers the United Kingdom before Jersey, because the
 generated data marks the main country for each shared code. Thailand leads both country lists and
 is the default.
 
-Both the patient's number and the emergency contact's number have their own picker, so a Thai
-patient can list a relative abroad. Changing a country re-judges a number already typed. The staff
+Both number fields accept digits only — the dialling prefix comes from the picker, so letters and
+punctuation are stripped as they are typed or pasted. Both the patient's number and the emergency
+contact's number have their own picker, so a Thai patient can list a relative abroad. Changing a country re-judges a number already typed. The staff
 console shows numbers in international form (`+44 7400 123456`), so the front desk can dial without
 guessing the prefix.
 
@@ -180,9 +184,25 @@ Nationality covers all 245 countries and territories, labelled by demonym where 
 use ("Thai", "British", "Ivorian") and by country name where one is not ("Gibraltar", "Guadeloupe").
 Both lists come from the same generated file, so a country can never appear in one and not the other.
 
+## Validation and progress
+
+Ten of the fourteen questions are required. The progress meter counts a field only when it is both
+filled in **and** valid, so a malformed email or a number that is wrong for its country does not
+advance the bar — it can never reach full while submit would still refuse.
+
+Errors surface on blur, then update live once a field has been visited; a field the patient has not
+reached yet never shows red. Clearing a field they have just edited validates immediately, and a
+field already showing an error clears it the moment it is fixed rather than waiting for the next
+blur.
+
+Cross-field rules (the phone/country pairing, for instance) run on every keystroke rather than only
+at submit. Zod skips object-level refinements while any base field is still empty — which on a
+half-filled form is always — so those rules are also applied by a small resolver wrapper in
+`PatientForm`, and the schema still enforces them server-side on submit.
+
 ## Sessions and refreshing
 
-Reloading the patient form starts a **new** session: the page redirects to a fresh session id, the
+Reloading the patient form starts a **new** session: the page redirects to a fresh Form ID, the
 abandoned draft is cleared, and the old session appears on the staff console as inactive, ready to
 be deleted. Returning to a session URL without reloading still restores its draft, and any restored
 value that is invalid shows its error straight away — a field left empty stays quiet until it is
@@ -206,11 +226,12 @@ visible throughout; `prefers-reduced-motion` disables the caret pulse and the ro
 ## Bonus features implemented
 
 - **Draft persistence** — form state is mirrored to `localStorage`, so a dropped connection does
-  not lose the patient's work. (A deliberate refresh starts a fresh session instead — see below.)
+  not lose the patient's work. A deliberate refresh starts a fresh session instead, as described
+  under **Sessions and refreshing** above.
 - **Reconnection repair** — on reconnect the client re-joins and re-sends its full current state,
   so the server's copy is repaired rather than left stale.
-- **Copyable intake link** — the console's empty state generates a fresh session link for handing
-  to a patient.
+- **Copyable form link** — the console's empty state ("No patients are filling in a form right
+  now") generates a fresh form link for handing to a patient.
 - **Age hint** on date of birth, and human-readable values (option labels, formatted dates) in the
   console rather than raw stored values.
 
@@ -227,12 +248,31 @@ Env:    PORT is provided by the host
 Health: GET /healthz → 200
 ```
 
-Railway, Fly and Heroku work identically. Vercel does not: its serverless functions cannot hold an
-open WebSocket. The transport is isolated behind `src/lib/realtime/`, so moving to a hosted pub/sub
-service (Pusher, Ably) to stay on Vercel would not touch a single component.
+Railway, Fly and Heroku work identically — anything that runs a long-lived Node process and calls
+`npm start`.
 
 Free-tier services sleep when idle, so the first request after a quiet period can take a few
 seconds to wake.
+
+### Why not a serverless host
+
+Vercel [does support WebSockets](https://vercel.com/docs/functions/websockets), so the transport is
+not the obstacle. The obstacle is state. Vercel's own documentation is explicit:
+
+> New WebSocket connections are not guaranteed to reach the same Vercel Function instance… Store
+> durable state, presence, counters, rooms, and pub/sub coordination in an external data store
+> instead of relying on in-memory variables.
+
+The patient's socket and the staff console's socket are two separate connections, so they can land
+on different instances. `Map<sessionId, SessionState>` lives in one instance's memory and a room
+broadcast only reaches sockets on that same instance — the patient types and the console never
+hears it. Netlify Functions have the same constraint.
+
+Running here would mean a Redis-backed store plus Redis pub/sub, and moving the socket handler out
+of `server.ts` into a route handler (Next.js has no upgrade API of its own; Vercel's path is
+`experimental_upgradeWebSocket`, which yields a raw `ws` socket rather than a Socket.IO server).
+The store already sits behind the `SessionStore` interface, so that part is one new file — but it
+is real work, not a config flag.
 
 ## Known limitations
 
@@ -241,6 +281,10 @@ Deliberate scope choices, stated plainly.
 - **In-memory store.** Sessions are lost on restart and do not survive horizontal scaling.
   Production would move the map to Redis with the Socket.IO Redis adapter — the store already sits
   behind the `SessionStore` interface, so that is a single-file change.
+- **Requires a long-lived Node process.** The realtime layer needs a host that runs `server.ts`.
+  Serverless platforms give each invocation its own memory, so the patient's connection and the
+  console's connection can land on different instances and never see each other — see
+  [Why not a serverless host](#why-not-a-serverless-host).
 - **No authentication.** Anyone with the URL can open the staff console. A real deployment needs
   staff auth and per-clinic scoping.
 - **No PHI handling.** This holds real personal health data in production, which requires consent
