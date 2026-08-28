@@ -12,5 +12,5 @@ yarn-error.log*
 .env*
 !.env.example
 next-env.d.ts
-tsconfig.tsbuildinfo
+*.tsbuildinfo
 coverage/
