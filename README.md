@@ -121,9 +121,6 @@ Beyond the required form, validation, responsive layouts and live updates:
 
 **Craft**
 
-- **Accessibility** — real `<label>`s, errors linked with `aria-describedby` and announced with
-  `role="alert"`, an `aria-live` region for status changes, visible focus rings, and
-  `prefers-reduced-motion` support.
 - **No layout shift** — every field reserves a line for its hint or error, so nothing moves when one
   appears.
 - **69 unit tests** covering the validation schema, the presence state machine and the session store.
