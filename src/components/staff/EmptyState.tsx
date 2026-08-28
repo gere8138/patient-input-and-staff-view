@@ -59,7 +59,7 @@ export function EmptyState() {
           onClick={makeLink}
           className="mt-6 min-h-[40px] rounded-lg bg-signal px-4 text-sm font-medium text-console"
         >
-          Create an intake link
+          Create a form link
         </button>
       )}
     </div>

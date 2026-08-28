@@ -49,9 +49,9 @@ export function StaffDashboard({ focusSessionId }: { focusSessionId?: string }) 
       <header className="border-b border-console-line px-4 py-4 sm:px-6">
         <div className="flex flex-wrap items-center justify-between gap-3">
           <div>
-            <h1 className="text-lg font-semibold">Intake console</h1>
+            <h1 className="text-lg font-semibold">Intake Form Console</h1>
             <p className="mt-0.5 font-mono text-[11px] tracking-widest text-muted uppercase">
-              Agnos · staff view
+              Agnos · staff console
             </p>
           </div>
 

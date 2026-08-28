@@ -13,7 +13,7 @@ export function SubmittedScreen({ reference, name }: { reference: string; name: 
       </div>
       <h1 className="mt-6 text-2xl font-semibold text-ink">Thank you{name ? `, ${name}` : ''}.</h1>
       <p className="mt-3 text-ink-soft">
-        Your details are with the front desk. Please take a seat — a member of staff will call you shortly.
+        Your details are submitted.
       </p>
       <p className="mt-8 text-xs tracking-wide text-muted uppercase">Form ID</p>
       <p className="font-mono text-xl tracking-widest text-ink">{reference}</p>
@@ -21,7 +21,7 @@ export function SubmittedScreen({ reference, name }: { reference: string; name: 
         href="/"
         className="mt-10 text-sm text-accent underline underline-offset-4 hover:no-underline"
       >
-        Start another intake
+        Start another form
       </Link>
     </div>
   );
