@@ -1,0 +1,88 @@
+@import 'tailwindcss';
+
+@theme {
+  /* Patient surface — paper */
+  --color-paper: #fbfbf9;
+  --color-paper-raised: #ffffff;
+  --color-ink: #10312e;
+  --color-ink-soft: #4a5f5c;
+  --color-accent: #146b5f;
+  --color-accent-soft: #e4efec;
+  --color-line: #e2e2dc;
+
+  /* Staff surface — console */
+  --color-console: #14181b;
+  --color-console-raised: #1e2429;
+  --color-console-line: #2b333a;
+  --color-console-ink: #e7ecef;
+
+  /* Status */
+  --color-signal: #e8b93a;
+  --color-ok: #3e9c6b;
+  --color-muted: #8a9199;
+  --color-alert: #c2453b;
+
+  --font-sans: var(--font-plex-sans), ui-sans-serif, system-ui, -apple-system, 'Segoe UI', sans-serif;
+  --font-mono: var(--font-plex-mono), ui-monospace, 'SF Mono', 'Cascadia Mono', monospace;
+
+  --animate-caret: caret 1.4s ease-in-out infinite;
+  --animate-flash: flash 900ms ease-out 1;
+}
+
+@keyframes caret {
+  0%,
+  100% {
+    opacity: 1;
+    transform: scaleY(1);
+  }
+  50% {
+    opacity: 0.35;
+    transform: scaleY(0.75);
+  }
+}
+
+@keyframes flash {
+  0% {
+    background-color: color-mix(in srgb, var(--color-signal) 22%, transparent);
+  }
+  100% {
+    background-color: transparent;
+  }
+}
+
+html {
+  -webkit-text-size-adjust: 100%;
+}
+
+body {
+  margin: 0;
+  font-family: var(--font-sans);
+}
+
+/* 16px base on mobile inputs keeps iOS from zooming on focus. */
+input,
+select,
+textarea,
+button {
+  font: inherit;
+  font-size: max(1rem, 16px);
+}
+
+:focus-visible {
+  outline: 2px solid var(--color-accent);
+  outline-offset: 2px;
+}
+
+.console :focus-visible {
+  outline-color: var(--color-signal);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
+}
