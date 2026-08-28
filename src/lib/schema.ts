@@ -45,7 +45,7 @@ export function formatPhone(value: string, country: string = DEFAULT_PHONE_COUNT
   }
 }
 
-export const GENDER_VALUES = ['female', 'male', 'other', 'prefer_not_to_say'] as const;
+export const GENDER_VALUES = ['female', 'male', 'prefer_not_to_say'] as const;
 
 export const patientSchema = z
   .object({
@@ -57,7 +57,6 @@ export const patientSchema = z
       .min(1, 'Enter a date of birth')
       .refine(isRealPastDate, 'Enter a real date of birth in the past'),
     gender: z.enum(GENDER_VALUES, { errorMap: () => ({ message: 'Choose an option' }) }),
-    genderSelfDescribe: z.string().trim().max(40).optional().or(z.literal('')),
     phoneCountry: z
       .string()
       .refine((iso) => Boolean(COUNTRY_BY_ISO[iso]), 'Choose a country'),
@@ -110,10 +109,6 @@ export function crossFieldIssues(data: Partial<PatientData>): Record<string, str
 
   // The contact's name and relationship are independent and optional: a number
   // on its own is still useful, so neither one requires the other.
-
-  if (data.gender === 'other' && !data.genderSelfDescribe) {
-    issues.genderSelfDescribe = 'Tell us how you describe your gender';
-  }
   return issues;
 }
 export type PatientField = keyof PatientData;
@@ -124,7 +119,6 @@ export const emptyPatientData: PatientData = {
   lastName: '',
   dateOfBirth: '',
   gender: '' as PatientData['gender'],
-  genderSelfDescribe: '',
   phoneCountry: DEFAULT_PHONE_COUNTRY,
   phone: '',
   email: '',

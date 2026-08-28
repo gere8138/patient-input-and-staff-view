@@ -146,8 +146,18 @@ Thai mobile and an invalid Singapore number, and the form says so:
 | United States | invalid | "Enter a valid United States phone number" |
 | Singapore | invalid | "Enter a valid Singapore phone number" |
 
-Changing the country re-judges a number already typed. The staff console shows the number in
-international form (`+44 7400 123456`), so the front desk can dial it without guessing the prefix.
+The picker is a searchable combobox rather than a native select: type a country name, an ISO code,
+or the dialling code itself. Typing `44` offers the United Kingdom before Jersey, because the
+generated data marks the main country for each shared code. Thailand leads both country lists and
+is the default.
+
+Both the patient's number and the emergency contact's number have their own picker, so a Thai
+patient can list a relative abroad. Changing a country re-judges a number already typed. The staff
+console shows numbers in international form (`+44 7400 123456`), so the front desk can dial without
+guessing the prefix.
+
+The emergency contact **number** is required — it is the part that is actually useful in a crisis.
+The contact's name and relationship are optional and independent of each other.
 
 Nationality covers all 245 countries and territories, labelled by demonym where one is in common
 use ("Thai", "British", "Ivorian") and by country name where one is not ("Gibraltar", "Guadeloupe").

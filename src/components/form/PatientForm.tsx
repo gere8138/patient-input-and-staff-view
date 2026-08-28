@@ -48,10 +48,12 @@ const draftKey = (sessionId: string) => `agnos:draft:${sessionId}`;
 const DEPENDENTS: Partial<Record<PatientField, PatientField[]>> = {
   phoneCountry: ['phone'],
   emergencyContactPhoneCountry: ['emergencyContactPhone'],
-  gender: ['genderSelfDescribe'],
 };
 
-/** Choosing from a list is a finished action, so its partners re-check at once. */
+/**
+ * Choosing from a list is a finished action, so the field and any partners
+ * re-check at once rather than waiting for a blur that may never come.
+ */
 const REVALIDATE_ON_CHANGE = new Set<PatientField>([
   'phoneCountry',
   'emergencyContactPhoneCountry',
@@ -207,7 +209,6 @@ export function PatientForm({ sessionId }: { sessionId: string }) {
   }
 
   const renderField = (spec: FieldSpec) => {
-    if (spec.showWhen && spec.showWhen.key === 'gender' && gender !== spec.showWhen.equals) return null;
     const error = errors[spec.key]?.message;
     const registration = bind(spec.key);
     const onFocus = () => setFocus(spec.key);

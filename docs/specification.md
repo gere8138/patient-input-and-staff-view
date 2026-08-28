@@ -30,13 +30,13 @@ Every line of the assignment mapped to where it is satisfied. This table is the 
 | R2 | Middle Name (optional) | `identity` | ☑ |
 | R3 | Last Name | `identity` | ☑ |
 | R4 | Date of Birth | `identity`, native date input + age hint | ☑ |
-| R5 | Gender | `identity`, radio group + self-describe option | ☑ |
+| R5 | Gender | `identity`, radio group (female / male / prefer not to say) | ☑ |
 | R6 | Phone Number | `contact`, country picker + per-country validation | ☑ |
 | R7 | Email | `contact`, required and validated | ☑ |
 | R8 | Address | `contact`, textarea | ☑ |
-| R9 | Preferred Language | `background`, select | ☑ |
+| R9 | Preferred Language | `background`, select of interpretable languages + Other | ☑ |
 | R10 | Nationality | `background`, select over all 245 countries | ☑ |
-| R11 | Emergency Contact (optional: name + relationship) | `emergency` | ☑ |
+| R11 | Emergency Contact | `emergency`: number required, name and relationship optional | ☑ |
 | R12 | Religion (optional) | `background` | ☑ |
 | R13 | Form validation (required fields, valid phone, valid email) | Zod schema + RHF resolver | ☑ |
 | R14 | Responsive patient form | Mobile-first, single column → two column at `md` | ☑ |
@@ -146,8 +146,7 @@ export const patientSchema = z.object({
   middleName:     z.string().max(60).optional().or(z.literal('')),
   lastName:       z.string().min(1, 'Enter the patient\'s last name').max(60),
   dateOfBirth:    z.string().refine(isRealPastDate, 'Enter a date of birth in the past'),
-  gender:         z.enum(['female', 'male', 'other', 'prefer_not_to_say']),
-  genderSelfDescribe: z.string().max(40).optional(),
+  gender:         z.enum(['female', 'male', 'prefer_not_to_say']),
   phone:          z.string().refine(isValidPhone, 'Enter a phone number with 9–15 digits'),
   email:          z.string().min(1, 'Enter an email address').email('Enter an email like name@example.com'),
   address:        z.string().min(5, 'Enter a street address').max(300),
@@ -185,13 +184,13 @@ export interface SessionState {
 |---|---|
 | First name, Last name | Required, 1–60 chars |
 | Date of birth | Required, parseable, not in the future, age ≤ 120 |
-| Gender | Required; `other` reveals a free-text field |
+| Gender | Required; one of three fixed options, no free-text branch |
 | Phone | Required; country picker + number, validated against that country's numbering plan via `libphonenumber-js` |
 | Email | Required and validated (the brief allows optional; the product owner asked for it to be required) |
 | Address | Required, min 5 chars |
 | Preferred language | Required, from a list |
 | Nationality | Required; all 245 countries and territories, by demonym where one exists |
-| Emergency contact | Optional pair — if a name is given, the relationship is required |
+| Emergency contact | Number required and validated against its own country; name and relationship independent and optional |
 | Religion | Optional, free text |
 
 Errors surface on blur, then live-update once the field has been touched. Never validate a field the patient has not visited yet.
@@ -206,7 +205,7 @@ Errors surface on blur, then live-update once the field has been touched. Never 
 |---|---|
 | `PatientFormPage` | Owns the RHF form instance and the socket connection for one session. |
 | `FormSection` | Groups fields under a heading: Identity → Contact → Background → Emergency contact. Grouping reduces the perceived length of a 12-field form on a phone. |
-| `TextField` / `SelectField` / `DateField` / `RadioGroup` | Field primitives. Each takes `name`, `label`, `error`, and reports focus/blur upward so the staff view can show `activeField`. |
+| `TextField` / `SelectField` / `DateField` / `RadioGroup` / `PhoneField` | Field primitives. Each takes `name`, `label`, `error`, and reports focus/blur upward so the staff view can show `activeField`. `PhoneField` pairs a searchable country combobox with the number. |
 | `ProgressMeter` | Sticky footer on mobile: "8 of 10 required fields complete" + the submit button. |
 | `ConnectionBadge` | Shows reconnecting / offline state so a patient never types into a void. |
 | `SubmittedScreen` | Replaces the form on success; confirms and shows a reference code. |

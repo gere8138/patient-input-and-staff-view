@@ -23,8 +23,6 @@ export interface FieldSpec {
   inputMode?: 'text' | 'tel' | 'email' | 'numeric';
   help?: string;
   options?: FieldOption[];
-  /** Rendered only when another field holds a particular value. */
-  showWhen?: { key: PatientField; equals: string };
   /**
    * Carried by another field's control rather than getting one of its own —
    * it is never rendered as a standalone input or as its own staff row.
@@ -55,14 +53,6 @@ export const LANGUAGES: FieldOption[] = [
   { value: 'mandarin', label: '中文 — Mandarin' },
   { value: 'japanese', label: '日本語 — Japanese' },
   { value: 'korean', label: '한국어 — Korean' },
-  { value: 'burmese', label: 'Burmese' },
-  { value: 'khmer', label: 'Khmer' },
-  { value: 'lao', label: 'Lao' },
-  { value: 'malay', label: 'Malay' },
-  { value: 'arabic', label: 'العربية — Arabic' },
-  { value: 'french', label: 'French' },
-  { value: 'german', label: 'German' },
-  { value: 'russian', label: 'Russian' },
   { value: 'other', label: 'Other' },
 ];
 
@@ -91,7 +81,6 @@ export const PHONE_COUNTRIES: FieldOption[] = thailandFirst(
 export const GENDERS: FieldOption[] = [
   { value: 'female', label: 'Female' },
   { value: 'male', label: 'Male' },
-  { value: 'other', label: 'Prefer to self-describe' },
   { value: 'prefer_not_to_say', label: 'Prefer not to say' },
 ];
 
@@ -117,7 +106,7 @@ export const FIELDS: FieldSpec[] = [
     type: 'text',
     required: true,
     span: 'half',
-    placeholder: 'Somchai',
+    placeholder: 'First Name',
     autoComplete: 'given-name',
   },
   {
@@ -136,7 +125,7 @@ export const FIELDS: FieldSpec[] = [
     type: 'text',
     required: true,
     span: 'half',
-    placeholder: 'Wongsawat',
+    placeholder: 'Last Name',
     autoComplete: 'family-name',
   },
   {
@@ -156,15 +145,6 @@ export const FIELDS: FieldSpec[] = [
     required: true,
     span: 'full',
     options: GENDERS,
-  },
-  {
-    key: 'genderSelfDescribe',
-    label: 'How do you describe your gender?',
-    section: 'identity',
-    type: 'text',
-    required: false,
-    span: 'full',
-    showWhen: { key: 'gender', equals: 'other' },
   },
   {
     key: 'phoneCountry',

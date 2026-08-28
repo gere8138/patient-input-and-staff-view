@@ -1,6 +1,21 @@
 import { describe, expect, it } from 'vitest';
-import { fieldErrors, formatPhone, isValidPhone, patientSchema, type PatientData } from '@/lib/schema';
-import { countCompletedRequired, NATIONALITIES, PHONE_COUNTRIES, REQUIRED_FIELDS } from '@/lib/fields';
+import {
+  fieldErrors,
+  formatPhone,
+  GENDER_VALUES,
+  isValidPhone,
+  patientSchema,
+  type PatientData,
+} from '@/lib/schema';
+import {
+  countCompletedRequired,
+  FIELDS,
+  GENDERS,
+  LANGUAGES,
+  NATIONALITIES,
+  PHONE_COUNTRIES,
+  REQUIRED_FIELDS,
+} from '@/lib/fields';
 import { COUNTRIES, flagEmoji } from '@/lib/countries';
 
 const valid: PatientData = {
@@ -9,7 +24,6 @@ const valid: PatientData = {
   lastName: 'Wongsawat',
   dateOfBirth: '1988-04-12',
   gender: 'male',
-  genderSelfDescribe: '',
   phoneCountry: 'TH',
   phone: '081 234 5678',
   email: 'somchai@example.com',
@@ -70,9 +84,13 @@ describe('patientSchema', () => {
     expect(errors).toEqual({});
   });
 
-  it('requires a self-description when gender is "other"', () => {
-    expect(errorsFor({ gender: 'other' })).toHaveProperty('genderSelfDescribe');
-    expect(errorsFor({ gender: 'other', genderSelfDescribe: 'Non-binary' })).toEqual({});
+  it('accepts each of the three gender options and nothing else', () => {
+    for (const gender of GENDER_VALUES) {
+      expect(errorsFor({ gender })).toEqual({});
+    }
+    expect(
+      patientSchema.safeParse({ ...valid, gender: 'other' as PatientData['gender'] }).success,
+    ).toBe(false);
   });
 
   it('rejects a date of birth in the future or beyond a human lifespan', () => {
@@ -152,6 +170,22 @@ describe('country data', () => {
       expect(country.dial).toMatch(/^\d+$/);
       expect(country.nationality.length).toBeGreaterThan(0);
     }
+  });
+
+  it('leads the language list with Thai and ends it with a catch-all', () => {
+    const values = LANGUAGES.map((option) => option.value);
+    expect(values[0]).toBe('thai');
+    expect(values.at(-1)).toBe('other');
+    expect(new Set(values).size).toBe(values.length);
+  });
+
+  it('keeps the gender radio options and the schema enum in step', () => {
+    expect(GENDERS.map((option) => option.value)).toEqual([...GENDER_VALUES]);
+  });
+
+  it('has no free-text gender field left behind', () => {
+    expect(FIELDS.some((field) => String(field.key) === 'genderSelfDescribe')).toBe(false);
+    expect(FIELDS.every((field) => !('showWhen' in field))).toBe(true);
   });
 
   it('offers one nationality option per country', () => {
